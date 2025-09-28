@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Titanic Dataset EDA</title>
+    <!-- Chart.js for visualizations -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- PapaParse for CSV parsing -->
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            color: #333;
+        }
+        h1, h2, h3 {
+            color: #2c3e50;
+        }
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        input[type="file"] {
+            margin: 10px 0;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 10px 0;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        .chart-container {
+            position: relative;
+            height: 400px;
+            width: 100%;
+            margin: 20px 0;
+        }
+        .flex-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+        .flex-chart {
+            flex: 1 1 400px;
+        }
+        .note {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 20px 0;
+            font-size: 0.9em;
+        }
+        @media (max-width: 768px) {
+            .flex-row {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1>Titanic Dataset Exploratory Data Analysis</h1>
+    
+    <div class="note">
+        <strong>Deployment Note:</strong> To deploy this app on GitHub Pages, create a public GitHub repository, 
+        commit index.html and app.js, enable Pages from settings (select main branch and root folder), and test the provided URL.
+    </div>
+    
+    <!-- Data Load Section -->
+    <div class="section">
+        <h2>1. Data Load</h2>
+        <p>Upload the train.csv and test.csv files from the Kaggle Titanic dataset</p>
+        
+        <div>
+            <label for="trainFile">Train Data (train.csv):</label>
+            <input type="file" id="trainFile" accept=".csv">
+        </div>
+        
+        <div>
+            <label for="testFile">Test Data (test.csv):</label>
+            <input type="file" id="testFile" accept=".csv">
+        </div>
+        
+        <button id="loadDataBtn">Load and Merge Data</button>
+    </div>
+    
+    <!-- Data Overview Section -->
+    <div class="section">
+        <h2>2. Data Overview</h2>
+        <button id="showOverviewBtn">Show Data Overview</button>
+        <div id="overviewContent"></div>
+    </div>
+    
+    <!-- Missing Values Section -->
+    <div class="section">
+        <h2>3. Missing Values Analysis</h2>
+        <button id="showMissingBtn">Analyze Missing Values</button>
+        <div id="missingContent"></div>
+    </div>
+    
+    <!-- Statistical Summary Section -->
+    <div class="section">
+        <h2>4. Statistical Summary</h2>
+        <button id="showStatsBtn">Generate Statistical Summary</button>
+        <div id="statsContent"></div>
+    </div>
+    
+    <!-- Visualizations Section -->
+    <div class="section">
+        <h2>5. Data Visualizations</h2>
+        <button id="showVizBtn">Generate Visualizations</button>
+        <div id="vizContent"></div>
+    </div>
+    
+    <!-- Export Section -->
+    <div class="section">
+        <h2>6. Export Results</h2>
+        <button id="exportCsvBtn">Export Merged CSV</button>
+        <button id="exportJsonBtn">Export JSON Summary</button>
+        <div id="exportStatus"></div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
