@@ -1,6 +1,5 @@
 // Titanic Binary Classifier using TensorFlow.js
-// Schema: Target: Survived (0/1), Features: Pclass, Sex, Age, SibSp, Parch, Fare, Embarked
-// To reuse with other datasets: Update the schema variables below and preprocessing logic
+// Improved version with better architecture and feature engineering
 
 // Global variables to store data and model
 let trainData = null;
@@ -41,7 +40,8 @@ const elements = {
     precision: document.getElementById('precision'),
     recall: document.getElementById('recall'),
     f1: document.getElementById('f1'),
-    auc: document.getElementById('auc')
+    auc: document.getElementById('auc'),
+    metricsInterpretation: document.getElementById('metricsInterpretation')
 };
 
 // Event listeners
@@ -158,11 +158,29 @@ async function inspectData() {
     console.log('Data Shape:', shape);
     console.log('Missing Values:', missingPercentages);
     
+    // Calculate class distribution
+    const classDistribution = calculateClassDistribution(trainData);
+    console.log('Class Distribution:', classDistribution);
+    
     // Show data preview
     console.table(trainData.slice(0, 5));
     
     // Create visualizations with tfjs-vis
     await createDataVisualizations();
+}
+
+// Calculate class distribution
+function calculateClassDistribution(data) {
+    const survived = data.filter(row => row[TARGET_COLUMN] === 1).length;
+    const died = data.filter(row => row[TARGET_COLUMN] === 0).length;
+    const total = data.length;
+    
+    return {
+        survived: survived,
+        died: died,
+        survivalRate: (survived / total * 100).toFixed(1) + '%',
+        deathRate: (died / total * 100).toFixed(1) + '%'
+    };
 }
 
 // Calculate missing values percentage
@@ -225,6 +243,23 @@ async function createDataVisualizations() {
     });
 }
 
+// Extract title from name
+function extractTitle(name) {
+    if (!name) return 'Unknown';
+    
+    const titleMatch = name.match(/\b([A-Za-z]+)\./);
+    if (titleMatch) {
+        const title = titleMatch[1];
+        // Group rare titles
+        const rareTitles = ['Lady', 'Countess', 'Capt', 'Col', 'Don', 'Dr', 'Major', 'Rev', 'Sir', 'Jonkheer', 'Dona'];
+        if (rareTitles.includes(title)) return 'Rare';
+        if (title === 'Mlle' || title === 'Ms') return 'Miss';
+        if (title === 'Mme') return 'Mrs';
+        return title;
+    }
+    return 'Unknown';
+}
+
 // Preprocess the data
 function preprocessData() {
     if (!trainData) {
@@ -233,7 +268,7 @@ function preprocessData() {
     }
     
     try {
-        setStatus(elements.preprocessStatus, 'Preprocessing data...', 'loading');
+        setStatus(elements.preprocessStatus, 'Preprocessing data with feature engineering...', 'loading');
         
         // Process training data
         const processedTrain = processDataset(trainData, true);
@@ -287,7 +322,7 @@ function processDataset(data, isTraining) {
     data.forEach(row => {
         const featureVector = [];
         
-        // Handle numerical features
+        // Handle numerical features with better normalization
         NUMERICAL_FEATURES.forEach(feature => {
             let value = row[feature];
             
@@ -298,11 +333,16 @@ function processDataset(data, isTraining) {
                 else value = 0;
             }
             
-            // Standardize Age and Fare
+            // Robust standardization
             if (feature === 'Age') {
-                value = (value - ageMedian) / (data.reduce((max, r) => Math.max(max, r.Age || 0), 0) - ageMedian);
+                value = (value - ageMedian) / 20; // Use fixed scale
             } else if (feature === 'Fare') {
-                value = (value - fareMedian) / (data.reduce((max, r) => Math.max(max, r.Fare || 0), 0) - fareMedian);
+                // Log transform for Fare to handle skewness
+                value = Math.log(value + 1);
+                value = (value - Math.log(fareMedian + 1)) / 2;
+            } else if (feature === 'SibSp' || feature === 'Parch') {
+                // Keep small integers as is
+                value = value / 5; // Normalize to 0-1 range
             }
             
             featureVector.push(value);
@@ -333,13 +373,15 @@ function processDataset(data, isTraining) {
             });
         });
         
-        // Add engineered features if enabled
+        // Add engineered features
         const addFamilySize = document.getElementById('addFamilySize').checked;
         const addIsAlone = document.getElementById('addIsAlone').checked;
+        const addTitle = document.getElementById('addTitle').checked;
+        const addFarePerPerson = document.getElementById('addFarePerPerson').checked;
         
         if (addFamilySize) {
             const familySize = (row.SibSp || 0) + (row.Parch || 0) + 1;
-            featureVector.push(familySize);
+            featureVector.push(familySize / 8); // Normalize
             featureNames.add('FamilySize');
         }
         
@@ -348,6 +390,50 @@ function processDataset(data, isTraining) {
             const isAlone = familySize === 1 ? 1 : 0;
             featureVector.push(isAlone);
             featureNames.add('IsAlone');
+        }
+        
+        if (addTitle && row.Name) {
+            const title = extractTitle(row.Name);
+            const titleCategories = ['Mr', 'Miss', 'Mrs', 'Master', 'Rare'];
+            const titleOneHot = new Array(titleCategories.length).fill(0);
+            const titleIndex = titleCategories.indexOf(title);
+            if (titleIndex !== -1) {
+                titleOneHot[titleIndex] = 1;
+            } else {
+                titleOneHot[titleCategories.length - 1] = 1; // Put in Rare
+            }
+            
+            titleOneHot.forEach((val, idx) => {
+                featureVector.push(val);
+                featureNames.add(`Title_${titleCategories[idx]}`);
+            });
+        }
+        
+        if (addFarePerPerson && row.Fare) {
+            const familySize = (row.SibSp || 0) + (row.Parch || 0) + 1;
+            const farePerPerson = row.Fare / familySize;
+            const normalizedFarePP = Math.log(farePerPerson + 1) / 4; // Normalized log fare
+            featureVector.push(normalizedFarePP);
+            featureNames.add('FarePerPerson');
+        }
+        
+        // Add age groups
+        if (row.Age !== null && row.Age !== undefined) {
+            const age = row.Age;
+            const ageGroup = age < 12 ? 0 : age < 18 ? 1 : age < 60 ? 2 : 3; // Child, Teen, Adult, Senior
+            const ageGroupOneHot = [0, 0, 0, 0];
+            ageGroupOneHot[ageGroup] = 1;
+            
+            ageGroupOneHot.forEach((val, idx) => {
+                featureVector.push(val);
+                featureNames.add(`AgeGroup_${idx}`);
+            });
+        } else {
+            // If age is missing, add zeros for age groups
+            [0, 0, 0, 0].forEach((val, idx) => {
+                featureVector.push(val);
+                featureNames.add(`AgeGroup_${idx}`);
+            });
         }
         
         features.push(featureVector);
@@ -359,8 +445,8 @@ function processDataset(data, isTraining) {
     });
     
     return {
-        originalData: data, // Keep original data for reference
-        processedData: data, // Keep original data with processed features
+        originalData: data,
+        processedData: data,
         features: tf.tensor2d(features),
         labels: isTraining ? tf.tensor2d(labels) : null,
         featureNames: Array.from(featureNames)
@@ -401,27 +487,57 @@ function getCategories(feature) {
     return categories[feature] || [];
 }
 
-// Create the neural network model
+// Create improved neural network model
 function createModel() {
     try {
-        setStatus(elements.modelStatus, 'Creating model...', 'loading');
+        setStatus(elements.modelStatus, 'Creating improved model...', 'loading');
         
         if (!trainData || !trainData.features) {
             throw new Error('Please preprocess data first to determine input shape');
         }
         
         const inputDim = trainData.features.shape[1];
-        console.log(`Creating model with input dimension: ${inputDim}`);
+        const hiddenLayers = parseInt(document.getElementById('hiddenLayers').value);
+        const units1 = parseInt(document.getElementById('units1').value);
+        const units2 = parseInt(document.getElementById('units2').value);
+        const learningRate = parseFloat(document.getElementById('learningRate').value);
+        const dropoutRate = parseFloat(document.getElementById('dropoutRate').value);
         
-        // Simple sequential model with one hidden layer
+        console.log(`Creating model with input dimension: ${inputDim}`);
+        console.log(`Architecture: ${hiddenLayers} hidden layers, units: [${units1}, ${units2}], LR: ${learningRate}, Dropout: ${dropoutRate}`);
+        
+        // Create improved sequential model
         model = tf.sequential();
         
-        // First layer with explicit input shape
+        // Input layer
         model.add(tf.layers.dense({
-            units: 16,
+            units: units1,
             activation: 'relu',
-            inputShape: [inputDim]
+            inputShape: [inputDim],
+            kernelInitializer: 'heNormal'
         }));
+        
+        model.add(tf.layers.dropout({ rate: dropoutRate }));
+        
+        // Additional hidden layers based on configuration
+        if (hiddenLayers >= 2) {
+            model.add(tf.layers.dense({
+                units: units2,
+                activation: 'relu',
+                kernelInitializer: 'heNormal',
+                kernelRegularizer: tf.regularizers.l2({ l2: 0.001 })
+            }));
+            
+            model.add(tf.layers.dropout({ rate: dropoutRate / 2 }));
+        }
+        
+        if (hiddenLayers >= 3) {
+            model.add(tf.layers.dense({
+                units: Math.floor(units2 / 2),
+                activation: 'relu',
+                kernelInitializer: 'heNormal'
+            }));
+        }
         
         // Output layer
         model.add(tf.layers.dense({
@@ -429,9 +545,9 @@ function createModel() {
             activation: 'sigmoid'
         }));
         
-        // Compile the model
+        // Compile the model with customized optimizer
         model.compile({
-            optimizer: 'adam',
+            optimizer: tf.train.adam(learningRate),
             loss: 'binaryCrossentropy',
             metrics: ['accuracy']
         });
@@ -439,7 +555,9 @@ function createModel() {
         // Print model summary
         model.summary();
         
-        setStatus(elements.modelStatus, `Model created! Input shape: [${inputDim}]`, 'success');
+        setStatus(elements.modelStatus, 
+                 `Improved model created! Input: [${inputDim}], Layers: ${hiddenLayers}, Units: [${units1}, ${units2}]`, 
+                 'success');
         
     } catch (error) {
         setStatus(elements.modelStatus, `Model creation error: ${error.message}`, 'error');
@@ -447,7 +565,7 @@ function createModel() {
     }
 }
 
-// Train the model
+// Train the model with improved configuration
 async function trainModel() {
     if (!model) {
         alert('Please create the model first');
@@ -460,13 +578,16 @@ async function trainModel() {
     }
     
     try {
-        setStatus(elements.trainingStatus, 'Training model...', 'loading');
+        setStatus(elements.trainingStatus, 'Training improved model...', 'loading');
         
         const features = trainData.features;
         const labels = trainData.labels;
+        const epochs = parseInt(document.getElementById('epochs').value);
+        const batchSize = parseInt(document.getElementById('batchSize').value);
+        const validationSplit = parseFloat(document.getElementById('validationSplit').value);
         
-        // Create validation split (80/20)
-        const splitIndex = Math.floor(features.shape[0] * 0.8);
+        // Create validation split
+        const splitIndex = Math.floor(features.shape[0] * (1 - validationSplit));
         
         const trainFeatures = features.slice(0, splitIndex);
         const trainLabels = labels.slice(0, splitIndex);
@@ -475,22 +596,32 @@ async function trainModel() {
         
         validationData = { features: valFeatures, labels: valLabels };
         
-        // Training configuration
+        // Enhanced training configuration
         const trainingConfig = {
-            epochs: 50,
-            batchSize: 32,
+            epochs: epochs,
+            batchSize: batchSize,
             validationData: [valFeatures, valLabels],
             callbacks: tfvis.show.fitCallbacks(
                 { name: 'Training Performance' },
                 ['loss', 'accuracy', 'val_loss', 'val_accuracy'],
-                { callbacks: ['onEpochEnd'] }
-            )
+                { 
+                    callbacks: ['onEpochEnd'],
+                    height: 300,
+                    width: 400
+                }
+            ),
+            shuffle: true,
+            validationSplit: 0 // We manually split above
         };
+        
+        console.log(`Training with ${epochs} epochs, batch size ${batchSize}, validation split ${validationSplit}`);
         
         // Train the model
         trainingHistory = await model.fit(trainFeatures, trainLabels, trainingConfig);
         
-        setStatus(elements.trainingStatus, 'Training completed!', 'success');
+        setStatus(elements.trainingStatus, 
+                 `Training completed! Final val_accuracy: ${trainingHistory.history.val_accuracy[trainingHistory.history.val_accuracy.length - 1].toFixed(4)}`, 
+                 'success');
         
     } catch (error) {
         setStatus(elements.trainingStatus, `Training error: ${error.message}`, 'error');
@@ -506,10 +637,25 @@ async function evaluateModel() {
     }
     
     try {
+        setStatus(elements.metricsInterpretation, 'Evaluating model...', 'loading');
+        
         // Get predictions
         const predictions = model.predict(validationData.features);
         const probs = await predictions.data();
         const trueLabels = await validationData.labels.data();
+        
+        // Debug information
+        console.log('True labels distribution:', {
+            'Survived (1)': trueLabels.filter(v => v === 1).length,
+            'Died (0)': trueLabels.filter(v => v === 0).length
+        });
+        
+        console.log('Predictions statistics:', {
+            min: Math.min(...probs),
+            max: Math.max(...probs),
+            mean: probs.reduce((a, b) => a + b) / probs.length,
+            above_0_5: probs.filter(p => p >= 0.5).length
+        });
         
         // Compute ROC curve and AUC
         rocData = computeROC(trueLabels, probs);
@@ -523,9 +669,12 @@ async function evaluateModel() {
         
         elements.auc.textContent = aucScore.toFixed(4);
         
+        // Provide interpretation
+        provideMetricsInterpretation();
+        
     } catch (error) {
         console.error('Evaluation error:', error);
-        alert('Error during model evaluation');
+        setStatus(elements.metricsInterpretation, `Evaluation error: ${error.message}`, 'error');
     }
 }
 
@@ -611,9 +760,56 @@ function updateMetrics(threshold) {
         elements.recall.textContent = recall.toFixed(4);
         elements.f1.textContent = f1.toFixed(4);
         
+        // Add color coding based on performance
+        updateMetricColors(accuracy, precision, recall, f1, aucScore);
+        
         // Plot confusion matrix
         plotConfusionMatrix(point);
     }
+}
+
+// Update metric colors based on performance
+function updateMetricColors(accuracy, precision, recall, f1, auc) {
+    const metrics = [
+        { element: elements.accuracy, value: accuracy, good: 0.75, excellent: 0.85 },
+        { element: elements.precision, value: precision, good: 0.70, excellent: 0.80 },
+        { element: elements.recall, value: recall, good: 0.65, excellent: 0.75 },
+        { element: elements.f1, value: f1, good: 0.70, excellent: 0.80 },
+        { element: elements.auc, value: auc, good: 0.75, excellent: 0.85 }
+    ];
+    
+    metrics.forEach(metric => {
+        if (metric.value >= metric.excellent) {
+            metric.element.className = 'metric-good';
+        } else if (metric.value >= metric.good) {
+            metric.element.className = '';
+        } else {
+            metric.element.className = 'metric-poor';
+        }
+    });
+}
+
+// Provide interpretation of metrics
+function provideMetricsInterpretation() {
+    const accuracy = parseFloat(elements.accuracy.textContent);
+    const precision = parseFloat(elements.precision.textContent);
+    const recall = parseFloat(elements.recall.textContent);
+    const f1 = parseFloat(elements.f1.textContent);
+    const auc = parseFloat(elements.auc.textContent);
+    
+    let interpretation = '';
+    
+    if (accuracy > 0.85 && auc > 0.85) {
+        interpretation = '🎉 Excellent model! Performance is very strong.';
+    } else if (accuracy > 0.80 && auc > 0.80) {
+        interpretation = '✅ Good model! Solid performance for Titanic dataset.';
+    } else if (accuracy > 0.75 && auc > 0.75) {
+        interpretation = '⚠️ Acceptable model. Consider tuning hyperparameters.';
+    } else {
+        interpretation = '❌ Model needs improvement. Check data preprocessing and model architecture.';
+    }
+    
+    setStatus(elements.metricsInterpretation, interpretation, 'success');
 }
 
 // Plot confusion matrix
@@ -733,5 +929,5 @@ function downloadCSV(content, filename) {
 }
 
 // Initialize the app
-console.log('Titanic Binary Classifier initialized');
-console.log('To reuse with other datasets, update the schema variables in app.js');
+console.log('Improved Titanic Binary Classifier initialized');
+console.log('Features: Enhanced architecture, feature engineering, and model configuration');
