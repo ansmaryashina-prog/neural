@@ -58,7 +58,7 @@ function readFile(file) {
     });
 }
 
-// Parse CSV text to array of objects with proper quoted field handling
+// Parse CSV text to array of objects with proper handling for Titanic dataset
 function parseCSV(csvText) {
     const lines = csvText.split('\n').filter(line => line.trim() !== '');
     if (lines.length === 0) return [];
@@ -75,7 +75,7 @@ function parseCSV(csvText) {
             obj[header] = value === '' || value === null ? null : value;
             
             // Convert numerical values to numbers if possible
-            if (!isNaN(obj[header]) && obj[header] !== null) {
+            if (!isNaN(obj[header]) && obj[header] !== null && obj[header] !== '') {
                 obj[header] = parseFloat(obj[header]);
             }
         });
@@ -83,28 +83,39 @@ function parseCSV(csvText) {
     });
 }
 
-// Helper function to parse a CSV line with quoted fields
+// Helper function to parse a CSV line for Titanic dataset
 function parseCSVLine(line) {
     const result = [];
     let current = '';
-    let inQuotes = false;
-    let quoteChar = '"';
+    let fieldCount = 0;
     
     for (let i = 0; i < line.length; i++) {
         const char = line[i];
         
-        if (char === quoteChar) {
-            // Handle escaped quotes (two consecutive quotes)
-            if (inQuotes && line[i + 1] === quoteChar) {
-                current += quoteChar;
-                i++; // Skip next quote
-            } else {
-                inQuotes = !inQuotes;
+        if (char === ',') {
+            // For Titanic dataset, we know the pattern:
+            // PassengerId,Survived,Pclass,Name,Sex,Age,SibSp,Parch,Ticket,Fare,Cabin,Embarked
+            // Name field is always the 4th field (index 3) and contains commas
+            
+            if (fieldCount === 3) { // Name field
+                // Keep collecting until we hit the pattern for the next field
+                // In Titanic data, after Name comes Sex which is either "male" or "female"
+                const remaining = line.substring(i + 1);
+                
+                // Look for the next field which should be Sex (male/female)
+                if (remaining.startsWith('male') || remaining.startsWith('female')) {
+                    // We found the end of Name field
+                    result.push(current.trim());
+                    current = '';
+                    fieldCount++;
+                    continue;
+                }
             }
-        } else if (char === ',' && !inQuotes) {
-            // End of field
+            
+            // Regular field separator
             result.push(current.trim());
             current = '';
+            fieldCount++;
         } else {
             current += char;
         }
