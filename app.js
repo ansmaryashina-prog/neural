@@ -193,13 +193,10 @@ function createPreviewTable(data) {
     return table;
 }
 
-// Create visualizations using tfjs-vis
-async function createVisualizations() {
+// Create visualizations using Chart.js (alternative approach)
+function createVisualizations() {
     const chartsDiv = document.getElementById('charts');
     chartsDiv.innerHTML = '<h3>Data Visualizations</h3>';
-    
-    // Show the visor
-    tfvis.visor().open();
     
     // Survival by Sex
     const survivalBySex = {};
@@ -220,16 +217,42 @@ async function createVisualizations() {
         survivalRate: (stats.survived / stats.total) * 100
     }));
     
-    // Render to visor
-    await tfvis.render.barchart(
-        { name: 'Survival Rate by Sex', tab: 'Charts' },
-        sexData.map(d => ({ x: d.sex, y: d.survivalRate })),
-        { 
-            xLabel: 'Sex', 
-            yLabel: 'Survival Rate (%)',
-            yAxisDomain: [0, 100]
+    // Create canvas for sex chart
+    const sexCanvas = document.createElement('canvas');
+    sexCanvas.id = 'sexChart';
+    sexCanvas.style.marginBottom = '30px';
+    chartsDiv.appendChild(sexCanvas);
+    
+    new Chart(sexCanvas, {
+        type: 'bar',
+        data: {
+            labels: sexData.map(d => d.sex),
+            datasets: [{
+                label: 'Survival Rate (%)',
+                data: sexData.map(d => d.survivalRate),
+                backgroundColor: ['#1a73e8', '#34a853']
+            }]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    max: 100,
+                    title: {
+                        display: true,
+                        text: 'Survival Rate (%)'
+                    }
+                },
+                x: {
+                    title: {
+                        display: true,
+                        text: 'Sex'
+                    }
+                }
+            }
         }
-    );
+    });
     
     // Survival by Pclass
     const survivalByPclass = {};
@@ -250,18 +273,41 @@ async function createVisualizations() {
         survivalRate: (stats.survived / stats.total) * 100
     }));
     
-    await tfvis.render.barchart(
-        { name: 'Survival Rate by Passenger Class', tab: 'Charts' },
-        pclassData.map(d => ({ x: d.pclass, y: d.survivalRate })),
-        { 
-            xLabel: 'Passenger Class', 
-            yLabel: 'Survival Rate (%)',
-            yAxisDomain: [0, 100]
-        }
-    );
+    // Create canvas for pclass chart
+    const pclassCanvas = document.createElement('canvas');
+    pclassCanvas.id = 'pclassChart';
+    chartsDiv.appendChild(pclassCanvas);
     
-    // Also create some simple HTML charts as fallback
-    createHTMLCharts(sexData, pclassData);
+    new Chart(pclassCanvas, {
+        type: 'bar',
+        data: {
+            labels: pclassData.map(d => d.pclass),
+            datasets: [{
+                label: 'Survival Rate (%)',
+                data: pclassData.map(d => d.survivalRate),
+                backgroundColor: ['#1a73e8', '#34a853', '#fbbc05']
+            }]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    max: 100,
+                    title: {
+                        display: true,
+                        text: 'Survival Rate (%)'
+                    }
+                },
+                x: {
+                    title: {
+                        display: true,
+                        text: 'Passenger Class'
+                    }
+                }
+            }
+        }
+    });
 }
 
 // Create simple HTML-based charts as fallback
