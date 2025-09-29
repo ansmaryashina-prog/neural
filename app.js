@@ -194,14 +194,17 @@ function createPreviewTable(data) {
 }
 
 // Create visualizations using tfjs-vis
-function createVisualizations() {
+async function createVisualizations() {
     const chartsDiv = document.getElementById('charts');
     chartsDiv.innerHTML = '<h3>Data Visualizations</h3>';
+    
+    // Show the visor
+    tfvis.visor().open();
     
     // Survival by Sex
     const survivalBySex = {};
     trainData.forEach(row => {
-        if (row.Sex && row.Survived !== undefined) {
+        if (row.Sex && row.Survived !== undefined && row.Survived !== null) {
             if (!survivalBySex[row.Sex]) {
                 survivalBySex[row.Sex] = { survived: 0, total: 0 };
             }
@@ -217,16 +220,21 @@ function createVisualizations() {
         survivalRate: (stats.survived / stats.total) * 100
     }));
     
-    tfvis.render.barchart(
+    // Render to visor
+    await tfvis.render.barchart(
         { name: 'Survival Rate by Sex', tab: 'Charts' },
         sexData.map(d => ({ x: d.sex, y: d.survivalRate })),
-        { xLabel: 'Sex', yLabel: 'Survival Rate (%)' }
+        { 
+            xLabel: 'Sex', 
+            yLabel: 'Survival Rate (%)',
+            yAxisDomain: [0, 100]
+        }
     );
     
     // Survival by Pclass
     const survivalByPclass = {};
     trainData.forEach(row => {
-        if (row.Pclass !== undefined && row.Survived !== undefined) {
+        if (row.Pclass !== undefined && row.Pclass !== null && row.Survived !== undefined && row.Survived !== null) {
             if (!survivalByPclass[row.Pclass]) {
                 survivalByPclass[row.Pclass] = { survived: 0, total: 0 };
             }
@@ -242,13 +250,52 @@ function createVisualizations() {
         survivalRate: (stats.survived / stats.total) * 100
     }));
     
-    tfvis.render.barchart(
+    await tfvis.render.barchart(
         { name: 'Survival Rate by Passenger Class', tab: 'Charts' },
         pclassData.map(d => ({ x: d.pclass, y: d.survivalRate })),
-        { xLabel: 'Passenger Class', yLabel: 'Survival Rate (%)' }
+        { 
+            xLabel: 'Passenger Class', 
+            yLabel: 'Survival Rate (%)',
+            yAxisDomain: [0, 100]
+        }
     );
     
-    chartsDiv.innerHTML += '<p>Charts are displayed in the tfjs-vis visor. Click the button in the bottom right to view.</p>';
+    // Also create some simple HTML charts as fallback
+    createHTMLCharts(sexData, pclassData);
+}
+
+// Create simple HTML-based charts as fallback
+function createHTMLCharts(sexData, pclassData) {
+    const chartsDiv = document.getElementById('charts');
+    
+    // Create sex chart
+    let sexChartHTML = '<h4>Survival Rate by Sex (HTML Chart)</h4><div style="display: flex; gap: 20px; margin-bottom: 30px;">';
+    sexData.forEach(data => {
+        sexChartHTML += `
+            <div style="text-align: center;">
+                <div style="font-weight: bold;">${data.sex}</div>
+                <div style="background: #1a73e8; width: 60px; height: ${data.survivalRate * 2}px; margin: 10px auto;"></div>
+                <div>${data.survivalRate.toFixed(1)}%</div>
+            </div>
+        `;
+    });
+    sexChartHTML += '</div>';
+    
+    // Create pclass chart
+    let pclassChartHTML = '<h4>Survival Rate by Passenger Class (HTML Chart)</h4><div style="display: flex; gap: 20px;">';
+    pclassData.forEach(data => {
+        pclassChartHTML += `
+            <div style="text-align: center;">
+                <div style="font-weight: bold;">${data.pclass}</div>
+                <div style="background: #34a853; width: 60px; height: ${data.survivalRate * 2}px; margin: 10px auto;"></div>
+                <div>${data.survivalRate.toFixed(1)}%</div>
+            </div>
+        `;
+    });
+    pclassChartHTML += '</div>';
+    
+    chartsDiv.innerHTML += sexChartHTML + pclassChartHTML;
+    chartsDiv.innerHTML += '<p><strong>Note:</strong> Interactive charts are displayed in the tfjs-vis visor (floating window). If you don\'t see it, check for a small button in the bottom-right corner of the page.</p>';
 }
 
 // Preprocess the data
