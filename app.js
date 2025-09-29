@@ -58,17 +58,21 @@ function readFile(file) {
     });
 }
 
-// Parse CSV text to array of objects
+// Parse CSV text to array of objects with proper quoted field handling
 function parseCSV(csvText) {
     const lines = csvText.split('\n').filter(line => line.trim() !== '');
-    const headers = lines[0].split(',').map(header => header.trim());
+    if (lines.length === 0) return [];
+    
+    // Parse headers first
+    const headers = parseCSVLine(lines[0]);
     
     return lines.slice(1).map(line => {
-        const values = line.split(',').map(value => value.trim());
+        const values = parseCSVLine(line);
         const obj = {};
         headers.forEach((header, i) => {
-            // Handle missing values (empty strings)
-            obj[header] = values[i] === '' ? null : values[i];
+            // Handle missing values (empty strings or undefined)
+            const value = i < values.length ? values[i] : null;
+            obj[header] = value === '' || value === null ? null : value;
             
             // Convert numerical values to numbers if possible
             if (!isNaN(obj[header]) && obj[header] !== null) {
@@ -77,6 +81,39 @@ function parseCSV(csvText) {
         });
         return obj;
     });
+}
+
+// Helper function to parse a CSV line with quoted fields
+function parseCSVLine(line) {
+    const result = [];
+    let current = '';
+    let inQuotes = false;
+    let quoteChar = '"';
+    
+    for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        
+        if (char === quoteChar) {
+            // Handle escaped quotes (two consecutive quotes)
+            if (inQuotes && line[i + 1] === quoteChar) {
+                current += quoteChar;
+                i++; // Skip next quote
+            } else {
+                inQuotes = !inQuotes;
+            }
+        } else if (char === ',' && !inQuotes) {
+            // End of field
+            result.push(current.trim());
+            current = '';
+        } else {
+            current += char;
+        }
+    }
+    
+    // Add the last field
+    result.push(current.trim());
+    
+    return result;
 }
 
 // Inspect the loaded data
