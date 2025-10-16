@@ -1,174 +1,317 @@
-// Practical Examples and Case Studies
-function predictCaseStudy(type) {
-    if (!model) {
-        alert('Please train the model first');
-        return;
-    }
+// Student Performance Analyzer - Neural Network Prototype
+// Midterm Exam Project: Interactive EDA and Modeling
 
-    // Define case study profiles based on actual data patterns
-    const caseStudies = {
-        risk: {
-            school: 'GP', sex: 'M', age: 16, address: 'U', famsize: 'GT3', Pstatus: 'T',
-            Medu: 2, Fedu: 2, Mjob: 'other', Fjob: 'other', reason: 'home', guardian: 'mother',
-            traveltime: 2, studytime: 1, failures: 2, schoolsup: 'no', famsup: 'no',
-            paid: 'no', activities: 'no', nursery: 'yes', higher: 'yes', internet: 'no',
-            romantic: 'no', famrel: 3, freetime: 3, goout: 4, Dalc: 3, Walc: 4,
-            health: 3, absences: 15, G1: 8, G2: 9
-        },
-        average: {
-            school: 'GP', sex: 'F', age: 17, address: 'U', famsize: 'GT3', Pstatus: 'T',
-            Medu: 3, Fedu: 3, Mjob: 'services', Fjob: 'other', reason: 'course', guardian: 'father',
-            traveltime: 1, studytime: 2, failures: 0, schoolsup: 'yes', famsup: 'yes',
-            paid: 'no', activities: 'yes', nursery: 'yes', higher: 'yes', internet: 'yes',
-            romantic: 'no', famrel: 4, freetime: 3, goout: 3, Dalc: 1, Walc: 2,
-            health: 4, absences: 6, G1: 11, G2: 12
-        },
-        high: {
-            school: 'GP', sex: 'F', age: 16, address: 'U', famsize: 'GT3', Pstatus: 'T',
-            Medu: 4, Fedu: 4, Mjob: 'teacher', Fjob: 'teacher', reason: 'course', guardian: 'mother',
-            traveltime: 1, studytime: 4, failures: 0, schoolsup: 'no', famsup: 'yes',
-            paid: 'yes', activities: 'yes', nursery: 'yes', higher: 'yes', internet: 'yes',
-            romantic: 'no', famrel: 5, freetime: 2, goout: 2, Dalc: 1, Walc: 1,
-            health: 5, absences: 2, G1: 16, G2: 17
-        }
-    };
+// Global variables
+let studentData = null;
+let model = null;
+let trainingHistory = null;
+let processedData = null;
 
-    const profile = caseStudies[type];
-    const prediction = predictStudentPerformance(profile);
+// Dataset schema for student performance data
+const FEATURE_COLUMNS = [
+    'school', 'sex', 'age', 'address', 'famsize', 'Pstatus', 'Medu', 'Fedu',
+    'Mjob', 'Fjob', 'reason', 'guardian', 'traveltime', 'studytime', 'failures',
+    'schoolsup', 'famsup', 'paid', 'activities', 'nursery', 'higher', 'internet',
+    'romantic', 'famrel', 'freetime', 'goout', 'Dalc', 'Walc', 'health', 'absences',
+    'G1', 'G2'
+];
+const TARGET_COLUMN = 'G3'; // Final grade
+
+// Initialize application when page loads
+document.addEventListener('DOMContentLoaded', function() {
+    initializeApp();
+});
+
+function initializeApp() {
+    console.log('Initializing Student Performance Analyzer...');
     
-    const predictionElement = document.getElementById(`${type}Prediction`);
-    const gradeElement = document.getElementById(`${type}Grade`);
+    // Initialize all event listeners
+    initializeEventListeners();
     
-    if (predictionElement && gradeElement) {
-        gradeElement.textContent = prediction.toFixed(1);
-        predictionElement.style.display = 'block';
-        
-        // Add color coding based on prediction
-        if (prediction >= 15) {
-            gradeElement.style.color = '#27ae60';
-        } else if (prediction >= 10) {
-            gradeElement.style.color = '#f39c12';
-        } else {
-            gradeElement.style.color = '#e74c3c';
-        }
+    // Set initial status messages
+    setStatus('dataStatus', 'Please upload a CSV file to begin', 'info');
+    setStatus('edaStatus', 'Load data first to perform EDA', 'info');
+    setStatus('preprocessStatus', 'Run EDA first to preprocess data', 'info');
+    setStatus('modelStatus', 'Preprocess data first to create model', 'info');
+    setStatus('trainingStatus', 'Create model first to begin training', 'info');
+    setStatus('evaluationStatus', 'Train model first to evaluate performance', 'info');
+    setStatus('featureStatus', 'Evaluate model first to analyze features', 'info');
+    setStatus('demoStatus', 'Click to run complete workflow demonstration', 'info');
+}
+
+function initializeEventListeners() {
+    // Main workflow buttons
+    document.getElementById('loadDataBtn').addEventListener('click', loadData);
+    document.getElementById('edaBtn').addEventListener('click', performEDA);
+    document.getElementById('preprocessBtn').addEventListener('click', preprocessData);
+    document.getElementById('createModelBtn').addEventListener('click', createModel);
+    document.getElementById('trainModelBtn').addEventListener('click', trainModel);
+    document.getElementById('evaluateBtn').addEventListener('click', evaluateModel);
+    document.getElementById('featureImportanceBtn').addEventListener('click', analyzeFeatureImportance);
+    document.getElementById('demoBtn').addEventListener('click', demonstratePrototype);
+    
+    // Practical examples buttons
+    document.getElementById('predictRiskBtn').addEventListener('click', () => predictCaseStudy('risk'));
+    document.getElementById('predictAverageBtn').addEventListener('click', () => predictCaseStudy('average'));
+    document.getElementById('predictHighBtn').addEventListener('click', () => predictCaseStudy('high'));
+    document.getElementById('predictCustomBtn').addEventListener('click', predictCustomStudent);
+    
+    console.log('All event listeners initialized');
+}
+
+// Tab switching function
+function switchTab(tabName) {
+    // Hide all tab contents
+    document.querySelectorAll('.tab-content').forEach(tab => {
+        tab.classList.remove('active');
+    });
+    
+    // Remove active class from all tabs
+    document.querySelectorAll('.tab').forEach(tab => {
+        tab.classList.remove('active');
+    });
+    
+    // Show selected tab content
+    document.getElementById(tabName).classList.add('active');
+    
+    // Activate selected tab
+    event.target.classList.add('active');
+}
+
+// Set status message
+function setStatus(elementId, message, type = 'info') {
+    const element = document.getElementById(elementId);
+    if (element) {
+        element.textContent = message;
+        element.className = `status ${type}`;
     }
 }
 
-function predictCustomStudent() {
-    if (!model) {
-        alert('Please train the model first');
+// Load and parse CSV data
+async function loadData() {
+    const fileInput = document.getElementById('dataFile');
+    const file = fileInput.files[0];
+    
+    if (!file) {
+        alert('Please select a CSV file first');
         return;
     }
-
-    // Get values from custom inputs
-    const customProfile = {
-        school: 'GP', sex: 'M', age: 17, address: 'U', famsize: 'GT3', Pstatus: 'T',
-        Medu: 3, Fedu: 3, Mjob: 'other', Fjob: 'other', reason: 'course', guardian: 'mother',
-        traveltime: 1, studytime: parseInt(document.getElementById('customStudyTime').value),
-        failures: 0, schoolsup: 'no', famsup: 'yes', paid: 'no', activities: 'yes',
-        nursery: 'yes', higher: 'yes', internet: 'yes', romantic: 'no', famrel: 4,
-        freetime: 3, goout: 3, Dalc: 1, Walc: 2, health: 4,
-        absences: parseInt(document.getElementById('customAbsences').value),
-        G1: parseInt(document.getElementById('customG1').value),
-        G2: parseInt(document.getElementById('customG2').value)
-    };
-
-    const prediction = predictStudentPerformance(customProfile);
     
-    const predictionElement = document.getElementById('customPrediction');
-    const gradeElement = document.getElementById('customGrade');
-    
-    if (predictionElement && gradeElement) {
-        gradeElement.textContent = prediction.toFixed(1);
-        predictionElement.style.display = 'block';
-        
-        // Add color coding based on prediction
-        if (prediction >= 15) {
-            gradeElement.style.color = '#27ae60';
-        } else if (prediction >= 10) {
-            gradeElement.style.color = '#f39c12';
-        } else {
-            gradeElement.style.color = '#e74c3c';
-        }
-    }
-}
-
-function predictStudentPerformance(studentProfile) {
-    if (!processedData || !model) {
-        console.error('Model or processed data not available');
-        return 0;
-    }
-
     try {
-        // Convert student profile to feature vector using the same preprocessing
-        const featureVector = preprocessSingleStudent(studentProfile);
-        const featuresTensor = tf.tensor2d([featureVector]);
+        setStatus('dataStatus', 'Loading student data...', 'loading');
         
-        // Make prediction
-        const prediction = model.predict(featuresTensor);
-        const predictionValue = prediction.dataSync()[0];
+        const text = await readFile(file);
+        studentData = parseCSV(text);
         
-        // Clean up tensors
-        featuresTensor.dispose();
-        prediction.dispose();
+        // Basic data validation
+        if (studentData.length === 0) {
+            throw new Error('No data found in file');
+        }
         
-        return Math.max(0, Math.min(20, predictionValue)); // Clamp between 0-20
+        console.log('Student data loaded:', studentData.length, 'records');
+        console.log('Sample record:', studentData[0]);
+        console.log('Available columns:', Object.keys(studentData[0]));
+        
+        // Check if target column exists
+        if (!studentData[0].hasOwnProperty(TARGET_COLUMN)) {
+            const availableColumns = Object.keys(studentData[0]);
+            const numericColumns = availableColumns.filter(col => {
+                const sample = studentData[0][col];
+                return typeof sample === 'number' && !isNaN(sample);
+            });
+            console.warn(`Target column '${TARGET_COLUMN}' not found. Available numeric columns:`, numericColumns);
+        }
+        
+        setStatus('dataStatus', 
+                 `Successfully loaded ${studentData.length} student records with ${Object.keys(studentData[0]).length} features`, 
+                 'success');
+        
+        // Enable EDA button
+        setStatus('edaStatus', 'Ready to perform EDA', 'success');
+                 
+    } catch (error) {
+        setStatus('dataStatus', `Error loading data: ${error.message}`, 'error');
+        console.error('Data loading error:', error);
+    }
+}
+
+// File reader utility
+function readFile(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = e => resolve(e.target.result);
+        reader.onerror = reject;
+        reader.readAsText(file);
+    });
+}
+
+// CSV parser with better error handling
+function parseCSV(csvText) {
+    const lines = csvText.trim().split('\n').filter(line => line.trim() !== '');
+    
+    if (lines.length === 0) {
+        throw new Error('CSV file is empty');
+    }
+    
+    // Handle different separators (comma or semicolon)
+    const firstLine = lines[0];
+    const separator = firstLine.includes(';') ? ';' : ',';
+    
+    const headers = lines[0].split(separator).map(h => h.trim().replace(/"/g, ''));
+    
+    console.log('CSV Headers:', headers);
+    console.log('Separator detected:', separator);
+    
+    return lines.slice(1).map((line, index) => {
+        const values = line.split(separator).map(v => v.trim().replace(/"/g, ''));
+        const row = {};
+        
+        headers.forEach((header, i) => {
+            let value = values[i];
+            
+            // Handle missing values
+            if (value === undefined || value === '' || value === 'NA' || value === 'null') {
+                value = null;
+            } else {
+                // Convert numeric values
+                const numericValue = parseFloat(value);
+                if (!isNaN(numericValue) && value !== '') {
+                    value = numericValue;
+                }
+            }
+            
+            row[header] = value;
+        });
+        
+        return row;
+    }).filter(row => Object.keys(row).length > 0); // Remove empty rows
+}
+
+// Perform Exploratory Data Analysis
+async function performEDA() {
+    if (!studentData) {
+        alert('Please load data first');
+        return;
+    }
+    
+    try {
+        setStatus('edaStatus', 'Performing Exploratory Data Analysis...', 'loading');
+        
+        // Clear previous visualizations
+        const vizArea = document.getElementById('edaVisualizations');
+        if (vizArea) {
+            vizArea.innerHTML = '<p>Creating visualizations...</p>';
+        }
+        
+        console.log('=== STARTING EDA ===');
+        console.log('Total records:', studentData.length);
+        
+        // Check target variable
+        const targetValues = getValidNumericValues(TARGET_COLUMN);
+        console.log('Valid target values:', targetValues.length);
+        
+        if (targetValues.length === 0) {
+            const availableColumns = Object.keys(studentData[0]);
+            const numericColumns = availableColumns.filter(col => {
+                const values = getValidNumericValues(col);
+                return values.length > 0;
+            });
+            
+            throw new Error(
+                `No valid numeric values in target column '${TARGET_COLUMN}'. ` +
+                `Available numeric columns: ${numericColumns.join(', ')}`
+            );
+        }
+        
+        // Create EDA Visualizations
+        await createEDAVisualizations();
+        
+        setStatus('edaStatus', 
+                 `EDA completed! Analyzed ${studentData.length} student records`, 
+                 'success');
+        
+        // Enable preprocessing button
+        setStatus('preprocessStatus', 'Ready to preprocess data', 'success');
         
     } catch (error) {
-        console.error('Prediction error:', error);
-        return 0;
+        setStatus('edaStatus', `EDA error: ${error.message}`, 'error');
+        console.error('EDA error:', error);
     }
 }
 
-function preprocessSingleStudent(student) {
-    // This should match your existing preprocessing logic
-    const featureVector = [];
+// SIMPLIFIED EDA Visualizations - FIXED VERSION
+async function createEDAVisualizations() {
+    if (!studentData || !tfvis) {
+        console.error('No data or tfvis available');
+        return;
+    }
     
-    // Add numeric features (standardized)
-    const numericFeatures = ['age', 'Medu', 'Fedu', 'traveltime', 'studytime', 'failures', 
-                           'famrel', 'freetime', 'goout', 'Dalc', 'Walc', 'health', 'absences', 'G1', 'G2'];
+    console.log('Creating EDA visualizations...');
     
-    numericFeatures.forEach(feature => {
-        let value = student[feature] || 0;
-        // Simple standardization (you should use the same as in your main preprocessing)
-        if (feature === 'absences') value = value / 10;
-        if (feature === 'G1' || feature === 'G2') value = value / 20;
-        featureVector.push(value);
-    });
-    
-    // Add categorical features (one-hot encoding simplified)
-    const categoricalFeatures = {
-        school: ['GP', 'MS'],
-        sex: ['F', 'M'],
-        address: ['U', 'R'],
-        famsize: ['GT3', 'LE3'],
-        Pstatus: ['T', 'A'],
-        Mjob: ['teacher', 'health', 'services', 'at_home', 'other'],
-        Fjob: ['teacher', 'health', 'services', 'at_home', 'other'],
-        reason: ['home', 'reputation', 'course', 'other'],
-        guardian: ['mother', 'father', 'other'],
-        schoolsup: ['yes', 'no'],
-        famsup: ['yes', 'no'],
-        paid: ['yes', 'no'],
-        activities: ['yes', 'no'],
-        nursery: ['yes', 'no'],
-        higher: ['yes', 'no'],
-        internet: ['yes', 'no'],
-        romantic: ['yes', 'no']
-    };
-    
-    Object.entries(categoricalFeatures).forEach(([feature, categories]) => {
-        const value = student[feature];
-        const oneHot = new Array(categories.length).fill(0);
-        const index = categories.indexOf(value);
-        if (index !== -1) oneHot[index] = 1;
-        oneHot.forEach(val => featureVector.push(val));
-    });
-    
-    return featureVector;
+    try {
+        // 1. Target variable distribution - SIMPLIFIED
+        const targetValues = getValidNumericValues(TARGET_COLUMN);
+        
+        if (targetValues.length > 0) {
+            console.log('Rendering target distribution with', targetValues.length, 'values');
+            
+            const surface1 = { name: 'Final Grade Distribution', tab: 'Data Analysis' };
+            await tfvis.render.histogram(surface1, targetValues, {
+                xLabel: 'Final Grade (G3)',
+                yLabel: 'Number of Students',
+                maxBins: 10
+            });
+        }
+
+        // 2. Basic feature distributions
+        const numericFeatures = getNumericFeatures(studentData[0])
+            .filter(f => f !== TARGET_COLUMN)
+            .slice(0, 3);
+        
+        for (const feature of numericFeatures) {
+            const featureValues = getValidNumericValues(feature);
+            if (featureValues.length > 0) {
+                const surface = { name: `Distribution: ${feature}`, tab: 'Data Analysis' };
+                await tfvis.render.histogram(surface, featureValues, {
+                    xLabel: feature,
+                    yLabel: 'Frequency',
+                    maxBins: 8
+                });
+            }
+        }
+
+        console.log('All EDA visualizations completed successfully');
+
+    } catch (error) {
+        console.error('Visualization error:', error);
+        throw error;
+    }
 }
 
-// Initialize practical examples when model is ready
-function initializePracticalExamples() {
-    console.log('Practical examples module loaded');
+// Helper function to get valid numeric values from a column
+function getValidNumericValues(columnName) {
+    if (!studentData || studentData.length === 0) return [];
+    
+    return studentData
+        .map(row => row[columnName])
+        .filter(value => isValidNumber(value));
 }
+
+// Check if a value is a valid number
+function isValidNumber(value) {
+    return value !== null && 
+           value !== undefined && 
+           typeof value === 'number' && 
+           !isNaN(value);
+}
+
+// Utility functions
+function getNumericFeatures(sampleRow) {
+    return Object.keys(sampleRow).filter(key => {
+        const value = sampleRow[key];
+        return isValidNumber(value);
+    });
+}
+
+function getCategoricalFeatures(sampleRow) {
+    return Object.keys(sampleRow).filter
