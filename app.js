@@ -74,6 +74,12 @@ async function loadData() {
         
         console.log('Student data loaded:', studentData.length, 'records');
         console.log('Sample record:', studentData[0]);
+        console.log('Available columns:', Object.keys(studentData[0]));
+        
+        // Check if target column exists
+        if (!studentData[0].hasOwnProperty(TARGET_COLUMN)) {
+            console.warn(`Target column '${TARGET_COLUMN}' not found. Available columns:`, Object.keys(studentData[0]));
+        }
         
         setStatus(elements.dataStatus, 
                  `Successfully loaded ${studentData.length} student records with ${Object.keys(studentData[0]).length} features`, 
@@ -95,24 +101,46 @@ function readFile(file) {
     });
 }
 
-// CSV parser
+// CSV parser with better error handling
 function parseCSV(csvText) {
-    const lines = csvText.trim().split('\n');
-    const headers = lines[0].split(',').map(h => h.trim());
+    const lines = csvText.trim().split('\n').filter(line => line.trim() !== '');
     
-    return lines.slice(1).map(line => {
-        const values = line.split(',').map(v => v.trim());
+    if (lines.length === 0) {
+        throw new Error('CSV file is empty');
+    }
+    
+    // Handle different separators (comma or semicolon)
+    const firstLine = lines[0];
+    const separator = firstLine.includes(';') ? ';' : ',';
+    
+    const headers = lines[0].split(separator).map(h => h.trim().replace(/"/g, ''));
+    
+    console.log('CSV Headers:', headers);
+    console.log('Separator detected:', separator);
+    
+    return lines.slice(1).map((line, index) => {
+        const values = line.split(separator).map(v => v.trim().replace(/"/g, ''));
         const row = {};
-        headers.forEach((header, index) => {
-            let value = values[index];
-            // Convert numeric values
-            if (!isNaN(value) && value !== '') {
-                value = parseFloat(value);
+        
+        headers.forEach((header, i) => {
+            let value = values[i];
+            
+            // Handle missing values
+            if (value === undefined || value === '' || value === 'NA' || value === 'null') {
+                value = null;
+            } else {
+                // Convert numeric values
+                const numericValue = parseFloat(value);
+                if (!isNaN(numericValue) && value !== '') {
+                    value = numericValue;
+                }
             }
+            
             row[header] = value;
         });
+        
         return row;
-    });
+    }).filter(row => Object.keys(row).length > 0); // Remove empty rows
 }
 
 // Set status message
@@ -142,11 +170,17 @@ async function performEDA() {
         console.log('Dataset Overview:', overview);
         
         // 2. Target Variable Analysis
-        const targetValues = studentData.map(row => row[TARGET_COLUMN]).filter(v => v !== undefined);
+        const targetValues = studentData.map(row => row[TARGET_COLUMN])
+            .filter(v => v !== undefined && v !== null && !isNaN(v));
+        
+        if (targetValues.length === 0) {
+            throw new Error(`No valid target values found in column '${TARGET_COLUMN}'. Available columns: ${Object.keys(studentData[0])}`);
+        }
+        
         const targetStats = {
             min: Math.min(...targetValues),
             max: Math.max(...targetValues),
-            mean: targetValues.reduce((a, b) => a + b) / targetValues.length,
+            mean: targetValues.reduce((a, b) => a + b, 0) / targetValues.length,
             median: median(targetValues)
         };
         
@@ -169,84 +203,130 @@ async function createEDAVisualizations() {
     
     const surface = { name: 'Student Performance EDA', tab: 'Data Analysis' };
     
-    // 1. Target variable distribution
-    const targetValues = studentData.map(row => row[TARGET_COLUMN]);
-    const gradeDistribution = createHistogramData(targetValues, 10);
-    
-    await tfvis.render.histogram(surface, 
-        { values: targetValues, dataSeries: ['Final Grades'] },
-        { xLabel: 'Final Grade (G3)', yLabel: 'Frequency', maxBins: 10 }
-    );
-    
-    // 2. Correlation analysis for key features
-    const keyFeatures = ['age', 'absences', 'G1', 'G2', 'studytime', 'failures'];
-    const correlationData = keyFeatures.map(feature => ({
-        x: studentData.map(row => row[feature]),
-        y: targetValues,
-        label: feature
-    }));
-    
-    const scatterSurface = { name: 'Feature vs Target Correlations', tab: 'Data Analysis' };
-    await tfvis.render.scatterplot(scatterSurface, 
-        { values: correlationData, series: keyFeatures },
-        { xLabel: 'Feature Values', yLabel: 'Final Grade (G3)' }
-    );
-    
-    // 3. Categorical feature analysis
-    const schoolPerformance = analyzeCategoricalPerformance('school');
-    const genderPerformance = analyzeCategoricalPerformance('sex');
-    
-    const barSurface = { name: 'Performance by Category', tab: 'Data Analysis' };
-    await tfvis.render.barchart(barSurface, 
-        Object.entries(schoolPerformance).map(([key, value]) => ({ index: key, value })),
-        { xLabel: 'School', yLabel: 'Average Grade' }
-    );
+    try {
+        // 1. Target variable distribution
+        const targetValues = studentData.map(row => row[TARGET_COLUMN])
+            .filter(v => v !== undefined && v !== null && !isNaN(v));
+        
+        if (targetValues.length > 0) {
+            await tfvis.render.histogram(surface, 
+                { values: targetValues, dataSeries: ['Final Grades'] },
+                { xLabel: 'Final Grade (G3)', yLabel: 'Frequency', maxBins: 10 }
+            );
+        }
+        
+        // 2. Correlation analysis for key features
+        const availableFeatures = Object.keys(studentData[0]).filter(key => 
+            key !== TARGET_COLUMN && 
+            typeof studentData[0][key] === 'number'
+        ).slice(0, 6); // Take first 6 numeric features
+        
+        if (availableFeatures.length > 0) {
+            const correlationData = availableFeatures.map(feature => {
+                const featureValues = studentData.map(row => row[feature])
+                    .filter(v => v !== undefined && v !== null && !isNaN(v));
+                const targetValuesFiltered = studentData.map(row => row[TARGET_COLUMN])
+                    .filter((v, i) => featureValues[i] !== undefined && v !== undefined && !isNaN(v));
+                
+                // Align arrays
+                const alignedFeatureValues = [];
+                const alignedTargetValues = [];
+                
+                studentData.forEach(row => {
+                    if (row[feature] !== undefined && row[feature] !== null && 
+                        !isNaN(row[feature]) && row[TARGET_COLUMN] !== undefined && 
+                        row[TARGET_COLUMN] !== null && !isNaN(row[TARGET_COLUMN])) {
+                        alignedFeatureValues.push(row[feature]);
+                        alignedTargetValues.push(row[TARGET_COLUMN]);
+                    }
+                });
+                
+                return {
+                    x: alignedFeatureValues,
+                    y: alignedTargetValues,
+                    label: feature
+                };
+            }).filter(data => data.x.length > 0);
+            
+            if (correlationData.length > 0) {
+                const scatterSurface = { name: 'Feature vs Target Correlations', tab: 'Data Analysis' };
+                await tfvis.render.scatterplot(scatterSurface, 
+                    { values: correlationData, series: availableFeatures.slice(0, correlationData.length) },
+                    { xLabel: 'Feature Values', yLabel: 'Final Grade (G3)' }
+                );
+            }
+        }
+        
+        // 3. Categorical feature analysis
+        const categoricalFeatures = getCategoricalFeatures(studentData[0]).slice(0, 3);
+        
+        for (const feature of categoricalFeatures) {
+            const performance = analyzeCategoricalPerformance(feature);
+            if (Object.keys(performance).length > 0) {
+                const barSurface = { name: `Performance by ${feature}`, tab: 'Data Analysis' };
+                await tfvis.render.barchart(barSurface, 
+                    Object.entries(performance).map(([key, value]) => ({ index: key, value })),
+                    { xLabel: feature, yLabel: 'Average Grade' }
+                );
+            }
+        }
+        
+    } catch (error) {
+        console.error('Visualization error:', error);
+        throw error;
+    }
 }
 
 // Analyze performance by categorical feature
 function analyzeCategoricalPerformance(featureName) {
     const groups = {};
+    
     studentData.forEach(row => {
-        const key = row[featureName];
-        if (!groups[key]) groups[key] = [];
-        groups[key].push(row[TARGET_COLUMN]);
+        if (row[featureName] !== undefined && row[featureName] !== null &&
+            row[TARGET_COLUMN] !== undefined && row[TARGET_COLUMN] !== null &&
+            !isNaN(row[TARGET_COLUMN])) {
+            
+            const key = String(row[featureName]);
+            if (!groups[key]) groups[key] = [];
+            groups[key].push(row[TARGET_COLUMN]);
+        }
     });
     
     const result = {};
     Object.entries(groups).forEach(([key, values]) => {
-        result[key] = values.reduce((a, b) => a + b) / values.length;
+        if (values.length > 0) {
+            result[key] = values.reduce((a, b) => a + b, 0) / values.length;
+        }
     });
     
     return result;
 }
 
-// Utility functions
+// Utility functions with safe array operations
 function getNumericFeatures(sampleRow) {
-    return Object.keys(sampleRow).filter(key => typeof sampleRow[key] === 'number');
+    return Object.keys(sampleRow).filter(key => 
+        typeof sampleRow[key] === 'number' && 
+        sampleRow[key] !== null && 
+        !isNaN(sampleRow[key])
+    );
 }
 
 function getCategoricalFeatures(sampleRow) {
-    return Object.keys(sampleRow).filter(key => typeof sampleRow[key] === 'string');
+    return Object.keys(sampleRow).filter(key => 
+        typeof sampleRow[key] === 'string' || 
+        (sampleRow[key] !== null && typeof sampleRow[key] !== 'number')
+    );
 }
 
 function median(arr) {
+    if (arr.length === 0) return 0;
     const sorted = arr.slice().sort((a, b) => a - b);
     const mid = Math.floor(sorted.length / 2);
     return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
-function createHistogramData(values, bins) {
-    const min = Math.min(...values);
-    const max = Math.max(...values);
-    const binSize = (max - min) / bins;
-    
-    const histogram = new Array(bins).fill(0);
-    values.forEach(value => {
-        const binIndex = Math.min(bins - 1, Math.floor((value - min) / binSize));
-        histogram[binIndex]++;
-    });
-    
-    return histogram;
+function safeSum(arr) {
+    return arr.reduce((a, b) => a + b, 0);
 }
 
 // Preprocess data for neural network
@@ -275,59 +355,101 @@ function preprocessData() {
     }
 }
 
-// Comprehensive data preprocessing
+// Comprehensive data preprocessing with error handling
 function preprocessStudentData(data) {
     const features = [];
     const labels = [];
     const featureNames = [];
     
+    // Get all available columns except target
+    const availableColumns = Object.keys(data[0]).filter(col => col !== TARGET_COLUMN);
+    
+    // Calculate statistics for numeric features
+    const numericStats = {};
+    const categoricalOptions = {};
+    
+    availableColumns.forEach(col => {
+        const values = data.map(row => row[col]).filter(v => v !== null && v !== undefined && !isNaN(v));
+        
+        if (values.length > 0 && typeof values[0] === 'number') {
+            const mean = safeSum(values) / values.length;
+            const std = Math.sqrt(values.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / values.length);
+            numericStats[col] = { mean, std };
+        } else {
+            // For categorical, collect all unique values
+            const uniqueValues = [...new Set(data.map(row => String(row[col])).filter(v => v && v !== 'undefined' && v !== 'null'))];
+            categoricalOptions[col] = uniqueValues;
+        }
+    });
+    
     data.forEach(row => {
         const featureVector = [];
         
         // Process numeric features (standardization)
-        const numericFeatures = getNumericFeatures(row).filter(f => f !== TARGET_COLUMN);
-        numericFeatures.forEach(feature => {
-            const values = data.map(r => r[feature]).filter(v => v !== undefined);
-            const mean = values.reduce((a, b) => a + b) / values.length;
-            const std = Math.sqrt(values.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / values.length);
-            
-            let value = row[feature];
-            if (value === undefined) value = mean;
-            const standardized = (value - mean) / (std || 1);
-            
-            featureVector.push(standardized);
-            if (featureNames.length < numericFeatures.length) {
-                featureNames.push(feature);
+        availableColumns.forEach(col => {
+            if (numericStats[col]) {
+                let value = row[col];
+                if (value === null || value === undefined || isNaN(value)) {
+                    value = numericStats[col].mean; // Impute with mean
+                }
+                const standardized = (value - numericStats[col].mean) / (numericStats[col].std || 1);
+                featureVector.push(standardized);
+                
+                if (featureNames.length < availableColumns.length) {
+                    featureNames.push(col);
+                }
             }
         });
         
         // Process categorical features (one-hot encoding)
-        const categoricalFeatures = getCategoricalFeatures(row);
-        categoricalFeatures.forEach(feature => {
-            const categories = [...new Set(data.map(r => r[feature]))];
-            const oneHot = new Array(categories.length).fill(0);
-            const index = categories.indexOf(row[feature]);
-            if (index !== -1) oneHot[index] = 1;
-            
-            oneHot.forEach(val => featureVector.push(val));
-            categories.forEach((cat, idx) => {
-                if (featureNames.length < numericFeatures.length + categories.length * categoricalFeatures.length) {
-                    featureNames.push(`${feature}_${cat}`);
+        availableColumns.forEach(col => {
+            if (categoricalOptions[col]) {
+                const categories = categoricalOptions[col];
+                const oneHot = new Array(categories.length).fill(0);
+                const value = String(row[col] || '');
+                const index = categories.indexOf(value);
+                
+                if (index !== -1) {
+                    oneHot[index] = 1;
+                } else if (categories.length > 0) {
+                    oneHot[0] = 1; // Default to first category if value not found
                 }
-            });
+                
+                oneHot.forEach(val => featureVector.push(val));
+                categories.forEach((cat, idx) => {
+                    featureNames.push(`${col}_${cat}`);
+                });
+            }
         });
         
         features.push(featureVector);
         
         // Target variable (final grade)
-        if (row[TARGET_COLUMN] !== undefined) {
+        if (row[TARGET_COLUMN] !== undefined && row[TARGET_COLUMN] !== null && !isNaN(row[TARGET_COLUMN])) {
             labels.push([row[TARGET_COLUMN]]);
         }
     });
     
+    // Filter out rows with invalid features or labels
+    const validIndices = [];
+    features.forEach((feature, index) => {
+        if (feature.length > 0 && labels[index] && labels[index][0] !== undefined) {
+            validIndices.push(index);
+        }
+    });
+    
+    const validFeatures = validIndices.map(i => features[i]);
+    const validLabels = validIndices.map(i => labels[i]);
+    
+    console.log(`Valid data: ${validFeatures.length} out of ${data.length} records`);
+    
+    if (validFeatures.length === 0) {
+        throw new Error('No valid data after preprocessing');
+    }
+    
     return {
-        features: tf.tensor2d(features),
-        labels: tf.tensor2d(labels),
+        features: tf.tensor2d(validFeatures),
+        labels: tf.tensor2d(validLabels),
         featureNames: featureNames
     };
 }
@@ -483,8 +605,9 @@ async function evaluateModel() {
     }
 }
 
-// Calculate evaluation metrics
+// Calculate evaluation metrics with safe operations
 function calculateMSE(trueValues, predValues) {
+    if (trueValues.length === 0) return 0;
     let sum = 0;
     for (let i = 0; i < trueValues.length; i++) {
         sum += Math.pow(trueValues[i] - predValues[i], 2);
@@ -493,6 +616,7 @@ function calculateMSE(trueValues, predValues) {
 }
 
 function calculateMAE(trueValues, predValues) {
+    if (trueValues.length === 0) return 0;
     let sum = 0;
     for (let i = 0; i < trueValues.length; i++) {
         sum += Math.abs(trueValues[i] - predValues[i]);
@@ -501,7 +625,8 @@ function calculateMAE(trueValues, predValues) {
 }
 
 function calculateR2(trueValues, predValues) {
-    const mean = trueValues.reduce((a, b) => a + b) / trueValues.length;
+    if (trueValues.length === 0) return 0;
+    const mean = trueValues.reduce((a, b) => a + b, 0) / trueValues.length;
     const ssTotal = trueValues.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0);
     const ssResidual = trueValues.reduce((acc, val, idx) => acc + Math.pow(val - predValues[idx], 2), 0);
     return 1 - (ssResidual / ssTotal);
@@ -509,30 +634,23 @@ function calculateR2(trueValues, predValues) {
 
 // Create evaluation visualizations
 async function createEvaluationVisualizations(trueValues, predValues) {
-    const surface = { name: 'Model Evaluation', tab: 'Results' };
-    
-    // Prediction vs Actual scatter plot
-    const scatterData = trueValues.map((trueVal, i) => ({
-        x: trueVal,
-        y: predValues[i]
-    }));
-    
-    await tfvis.render.scatterplot(surface, 
-        { values: scatterData, series: ['Predictions vs Actual'] },
-        { xLabel: 'Actual Grades', yLabel: 'Predicted Grades' }
-    );
-    
-    // Residual plot
-    const residualData = trueValues.map((trueVal, i) => ({
-        x: predValues[i],
-        y: trueVal - predValues[i]
-    }));
-    
-    const residualSurface = { name: 'Residual Analysis', tab: 'Results' };
-    await tfvis.render.scatterplot(residualSurface, 
-        { values: residualData, series: ['Residuals'] },
-        { xLabel: 'Predicted Values', yLabel: 'Residuals' }
-    );
+    try {
+        const surface = { name: 'Model Evaluation', tab: 'Results' };
+        
+        // Prediction vs Actual scatter plot
+        const scatterData = trueValues.map((trueVal, i) => ({
+            x: trueVal,
+            y: predValues[i]
+        }));
+        
+        await tfvis.render.scatterplot(surface, 
+            { values: scatterData, series: ['Predictions vs Actual'] },
+            { xLabel: 'Actual Grades', yLabel: 'Predicted Grades' }
+        );
+        
+    } catch (error) {
+        console.error('Evaluation visualization error:', error);
+    }
 }
 
 // Analyze feature importance
@@ -545,8 +663,8 @@ async function analyzeFeatureImportance() {
     try {
         setStatus(elements.featureStatus, 'Analyzing feature importance...', 'loading');
         
-        // Simple permutation importance
-        const importanceScores = await calculateFeatureImportance();
+        // For demo purposes, show a simple feature importance based on correlation
+        const importanceScores = await calculateSimpleFeatureImportance();
         
         // Create feature importance visualization
         const importanceSurface = { name: 'Feature Importance', tab: 'Results' };
@@ -554,8 +672,8 @@ async function analyzeFeatureImportance() {
         const importanceData = importanceScores
             .filter(imp => !isNaN(imp.score))
             .sort((a, b) => b.score - a.score)
-            .slice(0, 15)
-            .map(imp => ({ index: imp.feature, value: imp.score }));
+            .slice(0, 10)
+            .map(imp => ({ index: imp.feature.length > 20 ? imp.feature.substring(0, 20) + '...' : imp.feature, value: imp.score }));
         
         await tfvis.render.barchart(importanceSurface, importanceData, {
             xLabel: 'Features',
@@ -570,57 +688,56 @@ async function analyzeFeatureImportance() {
     }
 }
 
-// Calculate feature importance using permutation
-async function calculateFeatureImportance() {
+// Calculate simple feature importance based on correlation
+async function calculateSimpleFeatureImportance() {
     const { features, labels, featureNames } = processedData;
-    const valFeatures = features.slice(Math.floor(features.shape[0] * 0.8));
-    const valLabels = labels.slice(Math.floor(labels.shape[0] * 0.8));
-    
-    // Baseline performance
-    const baselinePred = model.predict(valFeatures);
-    const baselineLoss = await calculateMSE(await valLabels.data(), await baselinePred.data());
+    const featureData = await features.data();
+    const labelData = await labels.data();
     
     const importanceScores = [];
+    const numFeatures = features.shape[1];
+    const numSamples = features.shape[0];
     
-    // Calculate importance for each feature
-    for (let i = 0; i < featureNames.length; i++) {
-        // Permute feature
-        const permutedFeatures = valFeatures.clone();
-        const featureColumn = permutedFeatures.slice([0, i], [permutedFeatures.shape[0], 1]);
-        const shuffledColumn = featureColumn.clone().shuffle();
+    for (let i = 0; i < Math.min(numFeatures, featureNames.length); i++) {
+        const featureValues = [];
+        const targetValues = [];
         
-        // Replace with shuffled values
-        const indices = Array.from({ length: permutedFeatures.shape[0] }, (_, idx) => [idx, i]);
-        const updates = await shuffledColumn.data();
-        const updatedFeatures = tf.tensor(await permutedFeatures.data())
-            .reshape(permutedFeatures.shape)
-            .buffer();
+        // Extract feature values and corresponding targets
+        for (let j = 0; j < numSamples; j++) {
+            const featureVal = featureData[j * numFeatures + i];
+            const targetVal = labelData[j];
+            if (!isNaN(featureVal) && !isNaN(targetVal)) {
+                featureValues.push(featureVal);
+                targetValues.push(targetVal);
+            }
+        }
         
-        indices.forEach(([row, col], idx) => {
-            updatedFeatures.set(updates[idx], row, col);
-        });
-        
-        const finalFeatures = updatedFeatures.toTensor();
-        
-        // Calculate new loss
-        const newPred = model.predict(finalFeatures);
-        const newLoss = await calculateMSE(await valLabels.data(), await newPred.data());
-        
-        // Importance score is the increase in loss
-        importanceScores.push({
-            feature: featureNames[i],
-            score: newLoss - baselineLoss
-        });
-        
-        // Clean up tensors
-        permutedFeatures.dispose();
-        featureColumn.dispose();
-        shuffledColumn.dispose();
-        finalFeatures.dispose();
-        newPred.dispose();
+        if (featureValues.length > 1) {
+            // Calculate correlation coefficient
+            const correlation = calculateCorrelation(featureValues, targetValues);
+            importanceScores.push({
+                feature: featureNames[i],
+                score: Math.abs(correlation)
+            });
+        }
     }
     
     return importanceScores;
+}
+
+// Calculate correlation coefficient
+function calculateCorrelation(x, y) {
+    const n = x.length;
+    const sum_x = safeSum(x);
+    const sum_y = safeSum(y);
+    const sum_xy = x.reduce((acc, val, i) => acc + val * y[i], 0);
+    const sum_x2 = x.reduce((acc, val) => acc + val * val, 0);
+    const sum_y2 = y.reduce((acc, val) => acc + val * val, 0);
+    
+    const numerator = n * sum_xy - sum_x * sum_y;
+    const denominator = Math.sqrt((n * sum_x2 - sum_x * sum_x) * (n * sum_y2 - sum_y * sum_y));
+    
+    return denominator === 0 ? 0 : numerator / denominator;
 }
 
 // Demonstrate full prototype functionality
