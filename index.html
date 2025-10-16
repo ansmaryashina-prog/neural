@@ -3,191 +3,396 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Titanic Survival Classifier - TensorFlow.js</title>
+    <title>Student Performance Analyzer - Neural Network Prototype</title>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-vis@latest"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="app.js"></script>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            line-height: 1.6;
+        * {
             margin: 0;
-            padding: 20px;
-            color: #333;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
+
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
         .container {
             max-width: 1200px;
             margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
         }
-        h1, h2 {
-            color: #1a73e8;
-        }
-        section {
-            margin-bottom: 30px;
-            padding: 20px;
-            border: 1px solid #ddd;
-            border-radius: 5px;
-        }
-        button {
-            background-color: #1a73e8;
+
+        header {
+            background: #2c3e50;
             color: white;
-            padding: 10px 15px;
-            border: none;
-            border-radius: 4px;
+            padding: 30px;
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 2.2rem;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            font-size: 1.1rem;
+            opacity: 0.9;
+            margin-bottom: 15px;
+        }
+
+        .exam-info {
+            background: #34495e;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+        }
+
+        .tabs {
+            display: flex;
+            background: #ecf0f1;
+            border-bottom: 2px solid #3498db;
+        }
+
+        .tab {
+            padding: 15px 25px;
             cursor: pointer;
+            border: none;
+            background: none;
+            font-size: 1rem;
+            font-weight: 600;
+            color: #2c3e50;
+            transition: all 0.3s ease;
+        }
+
+        .tab.active {
+            background: #3498db;
+            color: white;
+        }
+
+        .tab:hover {
+            background: #2980b9;
+            color: white;
+        }
+
+        .tab-content {
+            display: none;
+            padding: 30px;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .section {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 25px;
+            margin-bottom: 20px;
+            border-left: 5px solid #3498db;
+        }
+
+        .section h2 {
+            color: #2c3e50;
+            margin-bottom: 20px;
+            font-size: 1.4rem;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+        }
+
+        .file-input-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #34495e;
+        }
+
+        input[type="file"] {
+            width: 100%;
+            padding: 10px;
+            border: 2px dashed #bdc3c7;
+            border-radius: 8px;
+            background: #ecf0f1;
+        }
+
+        button {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
             margin: 5px;
         }
+
         button:hover {
-            background-color: #0d62c9;
+            background: #2980b9;
+            transform: translateY(-2px);
         }
+
         button:disabled {
-            background-color: #ccc;
+            background: #bdc3c7;
             cursor: not-allowed;
+            transform: none;
         }
-        input[type="file"] {
+
+        .status {
+            padding: 10px;
+            border-radius: 5px;
             margin: 10px 0;
+            text-align: center;
+            font-weight: 600;
         }
-        .metrics-container {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 20px;
+
+        .loading { background: #fff3cd; color: #856404; border: 1px solid #ffeaa7; }
+        .success { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
         }
+
         .metric-card {
-            border: 1px solid #ddd;
-            padding: 15px;
-            border-radius: 5px;
-            min-width: 200px;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         }
-        .slider-container {
+
+        .metric-value {
+            font-size: 1.8rem;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+
+        .metric-label {
+            font-size: 0.9rem;
+            color: #7f8c8d;
+            margin-top: 5px;
+        }
+
+        .visualization-area {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            min-height: 400px;
+        }
+
+        .insight-box {
+            background: #e8f4f8;
+            padding: 20px;
+            border-radius: 8px;
             margin: 15px 0;
+            border-left: 4px solid #3498db;
         }
-        .slider {
-            width: 100%;
+
+        .innovation-features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
         }
-        .data-preview {
-            overflow-x: auto;
+
+        .feature-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            text-align: center;
         }
-        table {
-            border-collapse: collapse;
-            width: 100%;
-        }
-        th, td {
-            border: 1px solid #ddd;
-            padding: 8px;
-            text-align: left;
-        }
-        th {
-            background-color: #f2f2f2;
-        }
-        .note {
-            background-color: #f8f9fa;
-            padding: 15px;
-            border-radius: 5px;
-            margin: 15px 0;
-        }
+
         @media (max-width: 768px) {
-            .metrics-container {
+            .tabs {
                 flex-direction: column;
+            }
+            
+            .tab {
+                text-align: center;
+            }
+            
+            header {
+                padding: 20px;
+            }
+            
+            h1 {
+                font-size: 1.8rem;
             }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Titanic Survival Classifier with TensorFlow.js</h1>
-        
-        <section id="data-load">
-            <h2>1. Data Load</h2>
-            <p>Upload the training and test CSV files from the Titanic dataset:</p>
-            <div>
-                <label for="train-file">Training Data (train.csv):</label>
-                <input type="file" id="train-file" accept=".csv">
+        <header>
+            <h1>🎓 Student Performance Analyzer</h1>
+            <p class="subtitle">Neural Network Prototype for Academic Performance Prediction</p>
+            <div class="exam-info">
+                <strong>Midterm Exam Prototype</strong> | Interactive EDA & Neural Network Modeling | Browser-Based ML
             </div>
-            <div>
-                <label for="test-file">Test Data (test.csv):</label>
-                <input type="file" id="test-file" accept=".csv">
-            </div>
-            <button id="load-data-btn" onclick="loadData()">Load Data</button>
-            <div id="data-status"></div>
-        </section>
+        </header>
 
-        <section id="inspect">
-            <h2>2. Data Inspection</h2>
-            <button id="inspect-btn" onclick="inspectData()" disabled>Inspect Data</button>
-            <div id="data-preview" class="data-preview"></div>
-            <div id="data-stats"></div>
-            <div id="charts"></div>
-        </section>
+        <div class="tabs">
+            <button class="tab active" onclick="switchTab('data')">📊 Data & EDA</button>
+            <button class="tab" onclick="switchTab('model')">🧠 Neural Network</button>
+            <button class="tab" onclick="switchTab('results')">📈 Results & Insights</button>
+            <button class="tab" onclick="switchTab('innovation')">💡 Innovation</button>
+        </div>
 
-        <section id="preprocessing">
-            <h2>3. Preprocessing</h2>
-            <button id="preprocess-btn" onclick="preprocessData()" disabled>Preprocess Data</button>
-            <div>
-                <label>
-                    <input type="checkbox" id="add-family-features" checked>
-                    Add Family Features (FamilySize, IsAlone)
-                </label>
-            </div>
-            <div id="preprocessing-output"></div>
-        </section>
-
-        <section id="model">
-            <h2>4. Model Setup</h2>
-            <button id="create-model-btn" onclick="createModel()" disabled>Create Model</button>
-            <div id="model-summary"></div>
-        </section>
-
-        <section id="training">
-            <h2>5. Training</h2>
-            <button id="train-btn" onclick="trainModel()" disabled>Train Model</button>
-            <div id="training-status"></div>
-            <div id="training-vis"></div>
-        </section>
-
-        <section id="metrics">
-            <h2>6. Evaluation Metrics</h2>
-            <div class="slider-container">
-                <label for="threshold-slider">Classification Threshold (for ROC curve):</label>
-                <input type="range" id="threshold-slider" class="slider" min="0" max="1" step="0.01" value="0.5" disabled>
-                <span id="threshold-value">0.5</span>
-            </div>
-            <div id="metrics-output" class="metrics-container">
-                <div class="metric-card">
-                    <h3>Confusion Matrix</h3>
-                    <div id="confusion-matrix"></div>
+        <!-- Data & EDA Tab -->
+        <div id="data" class="tab-content active">
+            <div class="section">
+                <h2>Dataset Selection & Justification</h2>
+                <div class="insight-box">
+                    <strong>Selected Dataset:</strong> Student Performance Dataset<br>
+                    <strong>Rationale:</strong> Comprehensive academic, demographic, and social factors affecting student performance.<br>
+                    <strong>Target Variable:</strong> Final Grade (G3) - Continuous regression task
                 </div>
-                <div class="metric-card">
-                    <h3>Performance Metrics</h3>
-                    <div id="performance-metrics"></div>
+                
+                <div class="file-input-group">
+                    <label for="dataFile">Upload Student Performance Data (CSV):</label>
+                    <input type="file" id="dataFile" accept=".csv">
+                </div>
+                <button onclick="loadData()">Load & Explore Data</button>
+                <div id="dataStatus" class="status"></div>
+            </div>
+
+            <div class="section">
+                <h2>Exploratory Data Analysis</h2>
+                <button onclick="performEDA()">Run Comprehensive EDA</button>
+                <div id="edaStatus" class="status"></div>
+                
+                <div class="visualization-area" id="edaVisualizations">
+                    <!-- EDA charts will be rendered here -->
                 </div>
             </div>
-        </section>
 
-        <section id="prediction">
-            <h2>7. Prediction</h2>
-            <button id="predict-btn" onclick="predict()" disabled>Predict on Test Data</button>
-            <div id="prediction-output"></div>
-        </section>
-
-        <section id="export">
-            <h2>8. Export Results</h2>
-            <button id="export-btn" onclick="exportResults()" disabled>Export Results</button>
-            <div id="export-status"></div>
-        </section>
-
-        <section id="deployment">
-            <h2>Deployment Notes</h2>
-            <div class="note">
-                <p>To deploy this application:</p>
-                <ol>
-                    <li>Create a public GitHub repository</li>
-                    <li>Commit index.html and app.js to the repository</li>
-                    <li>Enable GitHub Pages in repository settings (select main branch and root folder)</li>
-                    <li>Your app will be available at: https://[your-username].github.io/[repository-name]</li>
-                </ol>
+            <div class="section">
+                <h2>Data Preprocessing</h2>
+                <button onclick="preprocessData()">Preprocess Data</button>
+                <div id="preprocessStatus" class="status"></div>
             </div>
-        </section>
+        </div>
+
+        <!-- Neural Network Tab -->
+        <div id="model" class="tab-content">
+            <div class="section">
+                <h2>Neural Network Architecture</h2>
+                <div class="insight-box">
+                    <strong>Model Choice Rationale:</strong> Neural networks capture complex non-linear relationships between student features and academic performance.<br>
+                    <strong>Architecture:</strong> Feedforward Neural Network with multiple hidden layers
+                </div>
+                
+                <button onclick="createModel()">Initialize Neural Network</button>
+                <div id="modelStatus" class="status"></div>
+            </div>
+
+            <div class="section">
+                <h2>Model Training</h2>
+                <button onclick="trainModel()">Train Neural Network</button>
+                <div id="trainingStatus" class="status"></div>
+                
+                <div class="visualization-area" id="trainingVisualizations">
+                    <!-- Training charts will be rendered here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Results & Insights Tab -->
+        <div id="results" class="tab-content">
+            <div class="section">
+                <h2>Model Performance Metrics</h2>
+                <button onclick="evaluateModel()">Evaluate Model</button>
+                <div id="evaluationStatus" class="status"></div>
+                
+                <div class="metrics-grid">
+                    <div class="metric-card">
+                        <div class="metric-value" id="rmse">-</div>
+                        <div class="metric-label">RMSE</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value" id="mae">-</div>
+                        <div class="metric-label">MAE</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value" id="r2">-</div>
+                        <div class="metric-label">R² Score</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>Predictive Insights</h2>
+                <div class="visualization-area" id="predictionVisualizations">
+                    <!-- Prediction charts will be rendered here -->
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>Feature Importance</h2>
+                <button onclick="analyzeFeatureImportance()">Analyze Feature Impact</button>
+                <div id="featureStatus" class="status"></div>
+            </div>
+        </div>
+
+        <!-- Innovation Tab -->
+        <div id="innovation" class="tab-content">
+            <div class="section">
+                <h2>Innovative Features</h2>
+                <div class="innovation-features">
+                    <div class="feature-card">
+                        <h3>🚀 Browser-Based ML</h3>
+                        <p>Complete neural network training and inference in browser using TensorFlow.js</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>📊 Interactive EDA</h3>
+                        <p>Real-time exploratory data analysis with dynamic visualizations</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>🎯 Academic Focus</h3>
+                        <p>Specialized for educational data and student performance prediction</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>🌐 Zero-Server Deployment</h3>
+                        <p>Runs entirely client-side, deployable via GitHub Pages</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>Research Insights</h2>
+                <div class="insight-box">
+                    <strong>Key Finding:</strong> Neural networks effectively model complex interactions between demographic, social, and academic factors influencing student performance.
+                </div>
+                <div class="insight-box">
+                    <strong>Practical Application:</strong> Enables early identification of at-risk students and personalized intervention strategies.
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>Prototype Demonstration</h2>
+                <button onclick="demonstratePrototype()">Run Full Demo</button>
+                <div id="demoStatus" class="status"></div>
+            </div>
+        </div>
     </div>
+
+    <script src="app.js"></script>
 </body>
 </html>
