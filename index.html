@@ -2,272 +2,397 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Telco Churn: EDA + TensorFlow.js + Business Simulator (Upload CSV)</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Telco Churn Analyzer</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-vis@1.5.1/dist/tfjs-vis.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 0 0 80px 0;
-            background: #f7f7fb;
-            color: #222;
+            margin: 20px;
+            background-color: #f5f5f5;
         }
-        
-        header {
-            background: #3f51b5;
-            color: #fff;
-            padding: 16px 20px;
-        }
-        
-        header h1 {
-            margin: 0;
-            font-size: 20px;
-        }
-        
-        header p {
-            margin: 6px 0 0 0;
-            font-size: 13px;
-        }
-        
-        a, a:visited {
-            color: #ffe082;
-        }
-        
         .container {
-            padding: 16px 20px;
             max-width: 1200px;
             margin: 0 auto;
-        }
-        
-        .grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: 12px;
-        }
-        
-        .card {
-            background: #fff;
+            background: white;
+            padding: 20px;
             border-radius: 8px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-            padding: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
-        
-        h2 {
-            font-size: 18px;
-            margin: 4px 0 10px;
-        }
-        
-        h3 {
-            font-size: 16px;
-            margin: 6px 0 8px;
-        }
-        
-        label {
-            display: block;
-            font-size: 12px;
-            color: #444;
-            margin-top: 6px;
-        }
-        
-        input[type="text"], input[type="number"], input[type="file"] {
-            width: 100%;
-            padding: 6px 8px;
+        .section {
+            margin: 20px 0;
+            padding: 15px;
             border: 1px solid #ddd;
-            border-radius: 4px;
+            border-radius: 5px;
+            background: #fafafa;
         }
-        
-        .btn {
-            background: #3f51b5;
-            color: #fff;
+        .section h3 {
+            margin-top: 0;
+            color: #333;
+        }
+        button {
+            background: #007cba;
+            color: white;
             border: none;
-            padding: 8px 10px;
+            padding: 8px 15px;
+            margin: 5px;
             border-radius: 4px;
             cursor: pointer;
-            margin: 4px 4px 0 0;
-            font-size: 13px;
         }
-        
-        .btn.secondary {
-            background: #607d8b;
+        button:hover {
+            background: #005a87;
         }
-        
-        .btn.success {
-            background: #2e7d32;
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
         }
-        
-        .btn.warn {
-            background: #ef6c00;
+        .input-group {
+            margin: 10px 0;
         }
-        
-        .btn.gray {
-            background: #757575;
+        label {
+            display: inline-block;
+            width: 200px;
+            font-weight: bold;
         }
-        
-        .row {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            align-items: center;
+        input[type="number"], input[type="text"] {
+            padding: 5px;
+            width: 100px;
+            border: 1px solid #ccc;
+            border-radius: 3px;
         }
-        
         #log {
+            background: #000;
+            color: #0f0;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 12px;
+            height: 300px;
+            overflow-y: auto;
             white-space: pre-wrap;
-            background: #0d1117;
-            color: #d1d5da;
-            padding: 8px;
-            border-radius: 8px;
-            height: 200px;
-            overflow: auto;
-            font-family: ui-monospace, Menlo, Consolas, monospace;
-            font-size: 12px;
         }
-        
-        .note {
-            font-size: 12px;
-            color: #666;
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
         }
-        
-        .metrics {
-            font-family: ui-monospace, Menlo, Consolas, monospace;
-            background: #fff;
-            border-radius: 8px;
-            padding: 8px;
-            border: 1px solid #eee;
-        }
-        
-        footer {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            background: #fff;
-            border-top: 1px solid #eee;
-            padding: 6px 12px;
-            font-size: 12px;
-            color: #666;
-        }
-        
-        .section-title {
-            margin-top: 16px;
-            font-size: 17px;
-            font-weight: 600;
-        }
-        
         .small {
             font-size: 12px;
-            color: #555;
+            color: #666;
         }
-        
-        textarea {
-            width: 100%;
-            min-height: 100px;
-            padding: 6px 8px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            font-family: ui-monospace, Menlo, Consolas, monospace;
+        .metrics {
+            background: #e8f4f8;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: monospace;
             font-size: 12px;
+        }
+        .file-input {
+            margin: 10px 0;
         }
     </style>
 </head>
 <body>
-    <header>
-        <h1>Telco Customer Churn: EDA + Neural Network + Business Simulator (Upload CSV, Client-only)</h1>
-        <p>Upload the Telco CSV from your computer. Expected schema: WA_Fn-UseC_-Telco-Customer-Churn.csv. Plots open in the tfjs-vis visor.</p>
-    </header>
-    
     <div class="container">
-        <div class="grid">
-            <div class="card">
-                <h2>Controls</h2>
-                <label>Upload dataset CSV <input type="file" id="datasetFile" accept=".csv,text/csv"> </label>
-                <div class="note">Required columns include: customerID, tenure, MonthlyCharges, TotalCharges, Churn, and the listed categorical features.</div>
-                <div class="row" style="margin-top:6px;">
-                    <button id="btnLoad" class="btn">Load Data</button>
-                    <button id="btnEDA" class="btn">Run EDA</button>
-                    <button id="btnPreprocess" class="btn">Preprocess & Split</button>
-                </div>
-                <div class="row">
-                    <button id="btnTrainBaseline" class="btn secondary">Train Baseline (LogReg)</button>
-                    <button id="btnTrainNN" class="btn success">Train Neural Net</button>
-                    <button id="btnEvaluate" class="btn">Evaluate</button>
-                    <button id="btnBusiness" class="btn warn">Business Simulation</button>
-                </div>
-                <div class="row">
-                    <button id="btnSaveModel" class="btn gray">Save Model (localStorage)</button>
-                    <button id="btnLoadModel" class="btn gray">Load Model (localStorage)</button>
-                    <button id="btnDownloadModel" class="btn gray">Download Model</button>
-                </div>
-                <div class="row" style="margin-top:6px;">
-                    <button id="btnDownloadPrep" class="btn gray">Download Preprocessing JSON</button>
-                    <input type="file" id="uploadConfig" accept=".json" />
-                </div>
+        <h1>📊 Telco Churn EDA + Neural Network + Business Simulator</h1>
+        <p class="small">Client-only application using TensorFlow.js - No data leaves your browser</p>
+
+        <!-- Data Loading Section -->
+        <div class="section">
+            <h3>📁 1. Data Loading</h3>
+            <div class="file-input">
+                <label for="datasetFile">Upload dataset CSV:</label>
+                <input type="file" id="datasetFile" accept=".csv" />
+                <button id="btnLoad">Load Data</button>
             </div>
-            
-            <div class="card">
-                <h2>Hyperparameters</h2>
-                <label>Hidden layers (comma-separated) <input id="hpLayers" type="text" value="128,64"></label>
-                <label>Dropout <input id="hpDropout" type="number" step="0.05" value="0.3"></label>
-                <label>L2 regularization <input id="hpL2" type="text" value="1e-4"></label>
-                <label>Learning rate <input id="hpLR" type="number" step="0.0001" value="0.001"></label>
-                <label>Batch size <input id="hpBatch" type="number" value="512"></label>
-                <label>Epochs <input id="hpEpochs" type="number" value="100"></label>
-                <label>Random seed <input id="hpSeed" type="number" value="42"></label>
-                <div class="note">Early stopping on val_loss with patience=8.</div>
-            </div>
-            
-            <div class="card">
-                <h2>Thresholds</h2>
-                <label>Manual threshold (0..1) <input id="thresholdInput" type="number" step="0.01" value="0.5"></label>
-                <div class="row">
-                    <button id="btnSetF1" class="btn">Set F1-optimal (val)</button>
-                    <button id="btnSetYouden" class="btn">Set Youden-optimal (val)</button>
-                </div>
-                <div class="small" id="thresholdNotes">F1-optimal: -, Youden-optimal: -</div>
-            </div>
-            
-            <div class="card">
-                <h2>Business Parameters</h2>
-                <label>Offer cost <input id="bizOfferCost" type="number" step="0.1" value="20.0"></label>
-                <label>Save rate (probability offer prevents churn) <input id="bizSaveRate" type="number" step="0.01" value="0.30"></label>
-                <label>Retention months (when saved) <input id="bizMonths" type="number" value="6"></label>
-                <label>Margin (revenue margin) <input id="bizMargin" type="number" step="0.05" value="0.4"></label>
-                <label>Budget K% Min <input id="bizKMin" type="number" step="1" value="5"></label>
-                <label>Budget K% Max <input id="bizKMax" type="number" step="1" value="40"></label>
-                <div class="note">Annualized savings assumes scaling test profit to full dataset and to 12 months (scaled by retentionMonths).</div>
+            <div class="small">
+                Expected columns: customerID, gender, SeniorCitizen, Partner, Dependents, tenure, PhoneService, 
+                MultipleLines, InternetService, OnlineSecurity, OnlineBackup, DeviceProtection, TechSupport, 
+                StreamingTV, StreamingMovies, Contract, PaperlessBilling, PaymentMethod, MonthlyCharges, TotalCharges, Churn
             </div>
         </div>
-        
-        <div class="section-title">Status / Log</div>
-        <div id="log" class="card"></div>
-        
-        <div class="grid" style="margin-top:12px;">
-            <div class="card">
-                <h2>Metrics & Results</h2>
-                <div id="metrics" class="metrics">Run Evaluate to populate.</div>
-            </div>
-            
-            <div class="card">
-                <h2>Manual Scoring</h2>
-                <div class="small">Paste a JSON object with CSV-like keys (e.g., {"gender":"Female","SeniorCitizen":"0",...}). Unknown categories are handled as zeros.</div>
-                <textarea id="manualRow" placeholder='{"customerID":"0001","gender":"Female","SeniorCitizen":"0","Partner":"No","Dependents":"No","tenure":"12","PhoneService":"Yes","MultipleLines":"No","InternetService":"DSL","OnlineSecurity":"No","OnlineBackup":"Yes","DeviceProtection":"No","TechSupport":"No","StreamingTV":"No","StreamingMovies":"No","Contract":"Month-to-month","PaperlessBilling":"Yes","PaymentMethod":"Electronic check","MonthlyCharges":"50.2","TotalCharges":"602.4","Churn":"No"}'></textarea>
-                <div class="row">
-                    <button id="btnScoreRow" class="btn">Score Row with NN</button>
-                    <div id="scoreOut" class="small"></div>
+
+        <!-- EDA Section -->
+        <div class="section">
+            <h3>🔍 2. Exploratory Data Analysis</h3>
+            <button id="btnEDA">Run EDA</button>
+        </div>
+
+        <!-- Preprocessing Section -->
+        <div class="section">
+            <h3>⚙️ 3. Preprocessing & Split</h3>
+            <button id="btnPreprocess">Preprocess & Split Data</button>
+        </div>
+
+        <!-- Model Training Section -->
+        <div class="section">
+            <h3>🤖 4. Model Training</h3>
+            <div class="grid">
+                <div>
+                    <h4>Hyperparameters</h4>
+                    <div class="input-group">
+                        <label for="hpLayers">Layer Sizes:</label>
+                        <input type="text" id="hpLayers" value="128,64" placeholder="e.g., 128,64">
+                    </div>
+                    <div class="input-group">
+                        <label for="hpDropout">Dropout:</label>
+                        <input type="number" id="hpDropout" value="0.2" step="0.1" min="0" max="0.9">
+                    </div>
+                    <div class="input-group">
+                        <label for="hpL2">L2 Regularization:</label>
+                        <input type="number" id="hpL2" value="0.001" step="0.001" min="0">
+                    </div>
+                    <div class="input-group">
+                        <label for="hpLR">Learning Rate:</label>
+                        <input type="number" id="hpLR" value="0.001" step="0.0001" min="0.0001">
+                    </div>
+                    <div class="input-group">
+                        <label for="hpBatch">Batch Size:</label>
+                        <input type="number" id="hpBatch" value="32" min="8" max="256">
+                    </div>
+                    <div class="input-group">
+                        <label for="hpEpochs">Epochs:</label>
+                        <input type="number" id="hpEpochs" value="100" min="10" max="500">
+                    </div>
+                    <div class="input-group">
+                        <label for="hpSeed">Random Seed:</label>
+                        <input type="number" id="hpSeed" value="42" min="0" max="999">
+                    </div>
+                </div>
+                <div>
+                    <h4>Training</h4>
+                    <button id="btnTrainBaseline">Train Baseline (Logistic)</button>
+                    <button id="btnTrainNN">Train Neural Network</button>
                 </div>
             </div>
+        </div>
+
+        <!-- Evaluation Section -->
+        <div class="section">
+            <h3>📈 5. Evaluation</h3>
+            <div class="input-group">
+                <label for="thresholdInput">Classification Threshold:</label>
+                <input type="number" id="thresholdInput" value="0.5" step="0.01" min="0" max="1">
+                <button id="btnSetF1">Set F1-optimal</button>
+                <button id="btnSetYouden">Set Youden-optimal</button>
+            </div>
+            <div id="thresholdNotes" class="small"></div>
+            <button id="btnEvaluate">Evaluate Models</button>
+            <div id="metrics" class="metrics"></div>
+        </div>
+
+        <!-- Business Simulation Section -->
+        <div class="section">
+            <h3>💼 6. Business Simulation</h3>
+            <div class="grid">
+                <div>
+                    <div class="input-group">
+                        <label for="bizOfferCost">Offer Cost ($):</label>
+                        <input type="number" id="bizOfferCost" value="20.0" step="5">
+                    </div>
+                    <div class="input-group">
+                        <label for="bizSaveRate">Save Rate:</label>
+                        <input type="number" id="bizSaveRate" value="0.30" step="0.05" min="0" max="1">
+                    </div>
+                    <div class="input-group">
+                        <label for="bizMonths">Retention Months:</label>
+                        <input type="number" id="bizMonths" value="6" min="1" max="24">
+                    </div>
+                </div>
+                <div>
+                    <div class="input-group">
+                        <label for="bizMargin">Profit Margin:</label>
+                        <input type="number" id="bizMargin" value="0.4" step="0.05" min="0" max="1">
+                    </div>
+                    <div class="input-group">
+                        <label for="bizKMin">Top-K Min %:</label>
+                        <input type="number" id="bizKMin" value="5" min="1" max="49">
+                    </div>
+                    <div class="input-group">
+                        <label for="bizKMax">Top-K Max %:</label>
+                        <input type="number" id="bizKMax" value="40" min="2" max="50">
+                    </div>
+                </div>
+            </div>
+            <button id="btnBusiness">Run Business Simulation</button>
+        </div>
+
+        <!-- Model Management Section -->
+        <div class="section">
+            <h3>💾 7. Model Management</h3>
+            <button id="btnSaveModel">Save Model to Browser</button>
+            <button id="btnLoadModel">Load Model from Browser</button>
+            <button id="btnDownloadModel">Download Model Files</button>
+            <button id="btnDownloadPrep">Download Preprocessing Config</button>
+            <div class="file-input">
+                <label for="uploadConfig">Upload Preprocessing Config:</label>
+                <input type="file" id="uploadConfig" accept=".json" />
+            </div>
+        </div>
+
+        <!-- Manual Scoring Section -->
+        <div class="section">
+            <h3>🎯 8. Manual Scoring</h3>
+            <textarea id="manualRow" rows="6" cols="80" placeholder='Paste customer data as JSON, e.g.:
+{
+  "customerID": "1234-ABCD",
+  "gender": "Male",
+  "SeniorCitizen": 0,
+  "Partner": "Yes",
+  "Dependents": "No",
+  "tenure": 12,
+  "PhoneService": "Yes",
+  "MultipleLines": "No",
+  "InternetService": "DSL",
+  "OnlineSecurity": "No",
+  "OnlineBackup": "Yes",
+  "DeviceProtection": "No",
+  "TechSupport": "No",
+  "StreamingTV": "No",
+  "StreamingMovies": "No",
+  "Contract": "Month-to-month",
+  "PaperlessBilling": "Yes",
+  "PaymentMethod": "Electronic check",
+  "MonthlyCharges": 45.50,
+  "TotalCharges": 546.00,
+  "Churn": "No"
+}'></textarea>
+            <br>
+            <button id="btnScoreRow">Score Customer</button>
+            <div id="scoreOut" class="metrics"></div>
+        </div>
+
+        <!-- Log Section -->
+        <div class="section">
+            <h3>📋 Status / Log</h3>
+            <div id="log">[1:42:18 PM] Ready. Start with Load Data.</div>
         </div>
     </div>
-    
-    <footer>
-        Tips: Upload CSV, click "Load Data", then "Run EDA", then "Preprocess & Split". Train baseline and NN. Use "Evaluate" to see ROC/PR, calibration, decile lift. "Business Simulation" shows profit curves. Plots open in the tfjs-vis visor (top-right toggle).
-    </footer>
-    
-    <!-- Libraries -->
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-vis@latest"></script>
-    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
-    
-    <!-- App -->
-    <script src="app.js"></script>
+
+    <script>
+        // Здесь будет вставлен весь JavaScript код, который я предоставил ранее
+        // (константы, STATE, функции appendLog, mulberry32, parseTelcoCsv, loadDataFromFile и т.д.)
+        
+        // Временно добавим простую версию для тестирования
+        const NUMERIC_FEATURES = ['tenure', 'MonthlyCharges', 'TotalCharges'];
+        const CATEGORICAL_FEATURES = [
+            'gender','SeniorCitizen','Partner','Dependents','PhoneService','MultipleLines',
+            'InternetService','OnlineSecurity','OnlineBackup','DeviceProtection','TechSupport',
+            'StreamingTV','StreamingMovies','Contract','PaperlessBilling','PaymentMethod'
+        ];
+        const TARGET_COL = 'Churn';
+        const ID_COL = 'customerID';
+
+        const STATE = {
+            seed: 42,
+            rawRows: [],
+            cleanedRows: [],
+            split: null,
+            maps: null,
+            transformed: null,
+            models: { baseline: null, mlp: null },
+            predictions: { baseline: {val: null, test: null}, mlp: {val: null, test: null} },
+            thresholds: { manual: 0.5, f1: null, youden: null, selected: 'manual' },
+            business: { offerCost: 20.0, saveRate: 0.30, retentionMonths: 6, margin: 0.4, kMin: 5, kMax: 40 },
+            sampleWeights: null,
+            trainingHistory: {},
+        };
+
+        function appendLog(msg) {
+            const el = document.getElementById('log');
+            const now = new Date().toLocaleTimeString();
+            el.textContent += `[${now}] ${msg}\n`;
+            el.scrollTop = el.scrollHeight;
+            console.log(msg);
+        }
+
+        // Load data from user file - ИСПРАВЛЕННАЯ ВЕРСИЯ
+        async function loadDataFromFile() {
+            const input = document.getElementById('datasetFile');
+            const file = input.files && input.files[0];
+            if (!file) {
+                appendLog('Please choose a CSV file in the "Upload dataset CSV" field.');
+                return [];
+            }
+            
+            appendLog(`Reading file: ${file.name} (${Math.round(file.size/1024)} KB) ...`);
+            
+            try {
+                const text = await readFileAsText(file);
+                const rows = parseTelcoCsv(text);
+                
+                if (rows.length === 0) {
+                    appendLog('Error: No data rows found in CSV file.');
+                    return [];
+                }
+                
+                STATE.rawRows = rows;
+                appendLog(`Loaded ${rows.length} rows, ${Object.keys(rows[0]).length} columns from file.`);
+                return rows;
+            } catch (error) {
+                appendLog(`Error loading file: ${error.message}`);
+                return [];
+            }
+        }
+
+        // Helper function to read file as text
+        function readFileAsText(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = e => resolve(e.target.result);
+                reader.onerror = e => reject(new Error('File reading failed'));
+                reader.readAsText(file);
+            });
+        }
+
+        function parseTelcoCsv(csvText) {
+            try {
+                const parsed = Papa.parse(csvText, { 
+                    header: true, 
+                    dynamicTyping: false, 
+                    skipEmptyLines: true,
+                    transform: (value) => value ? value.trim() : value
+                });
+                
+                if (parsed.errors.length > 0) {
+                    console.warn('CSV parsing warnings:', parsed.errors);
+                    appendLog(`CSV parsing warnings: ${parsed.errors.map(e => e.message).join(', ')}`);
+                }
+                
+                let rows = parsed.data.filter(row => Object.keys(row).length > 1);
+                rows = rows.map(r => {
+                    const o = {};
+                    for (const k in r) o[k] = r[k] === '' ? null : r[k];
+                    return o;
+                });
+                
+                return rows;
+            } catch (error) {
+                console.error('CSV parsing error:', error);
+                appendLog(`CSV parsing error: ${error.message}`);
+                return [];
+            }
+        }
+
+        // Basic button handlers for now
+        document.getElementById('btnLoad').addEventListener('click', async () => {
+            await loadDataFromFile();
+            if (STATE.rawRows.length) appendLog('Done. Next: Run EDA or Preprocess & Split.');
+        });
+
+        document.getElementById('btnEDA').addEventListener('click', async () => {
+            if (!STATE.rawRows.length) { 
+                appendLog('Please upload CSV and click Load Data first.'); 
+                return; 
+            }
+            appendLog('EDA functionality would run here...');
+        });
+
+        // Initialize
+        appendLog('Ready. Upload your CSV and click "Load Data".');
+
+    </script>
 </body>
 </html>
