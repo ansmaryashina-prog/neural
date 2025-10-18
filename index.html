@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Telco Churn: EDA + TensorFlow.js + Business Simulator (Client-only)</title>
+    <title>Telco Churn: EDA + TensorFlow.js + Business Simulator (Upload CSV)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <style>
         body {
@@ -171,15 +171,17 @@
 </head>
 <body>
     <header>
-        <h1>Telco Customer Churn: EDA + Neural Network + Business Simulator (TensorFlow.js, Client-only)</h1>
-        <p>Dataset: <a href="https://raw.githubusercontent.com/IBM/employee-attrition-aif360/master/data/WA_Fn-UseC_-Telco-Customer-Churn.csv" target="_blank">WA_Fn-UseC_-Telco-Customer-Churn.csv</a> • Runs 100% in your browser • Plots open in tfjs-vis visor</p>
+        <h1>Telco Customer Churn: EDA + Neural Network + Business Simulator (Upload CSV, Client-only)</h1>
+        <p>Upload the Telco CSV from your computer. Expected schema: WA_Fn-UseC_-Telco-Customer-Churn.csv. Plots open in the tfjs-vis visor.</p>
     </header>
     
     <div class="container">
         <div class="grid">
             <div class="card">
                 <h2>Controls</h2>
-                <div class="row">
+                <label>Upload dataset CSV <input type="file" id="datasetFile" accept=".csv,text/csv"> </label>
+                <div class="note">Required columns include: customerID, tenure, MonthlyCharges, TotalCharges, Churn, and the listed categorical features.</div>
+                <div class="row" style="margin-top:6px;">
                     <button id="btnLoad" class="btn">Load Data</button>
                     <button id="btnEDA" class="btn">Run EDA</button>
                     <button id="btnPreprocess" class="btn">Preprocess & Split</button>
@@ -257,7 +259,7 @@
     </div>
     
     <footer>
-        Tips: Click "Load Data" first, then "Run EDA", then "Preprocess & Split". Train baseline and NN. Use "Evaluate" to see ROC/PR, calibration, decile lift. Use threshold buttons or manual threshold. "Business Simulation" shows profit curves. Plots open in the tfjs-vis visor (top-right toggle).
+        Tips: Upload CSV, click "Load Data", then "Run EDA", then "Preprocess & Split". Train baseline and NN. Use "Evaluate" to see ROC/PR, calibration, decile lift. "Business Simulation" shows profit curves. Plots open in the tfjs-vis visor (top-right toggle).
     </footer>
     
     <!-- Libraries -->
