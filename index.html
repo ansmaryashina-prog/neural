@@ -272,10 +272,7 @@
     </div>
 
     <script>
-        // Здесь будет вставлен весь JavaScript код, который я предоставил ранее
-        // (константы, STATE, функции appendLog, mulberry32, parseTelcoCsv, loadDataFromFile и т.д.)
-        
-        // Временно добавим простую версию для тестирования
+        // Constants
         const NUMERIC_FEATURES = ['tenure', 'MonthlyCharges', 'TotalCharges'];
         const CATEGORICAL_FEATURES = [
             'gender','SeniorCitizen','Partner','Dependents','PhoneService','MultipleLines',
@@ -306,35 +303,6 @@
             el.textContent += `[${now}] ${msg}\n`;
             el.scrollTop = el.scrollHeight;
             console.log(msg);
-        }
-
-        // Load data from user file - ИСПРАВЛЕННАЯ ВЕРСИЯ
-        async function loadDataFromFile() {
-            const input = document.getElementById('datasetFile');
-            const file = input.files && input.files[0];
-            if (!file) {
-                appendLog('Please choose a CSV file in the "Upload dataset CSV" field.');
-                return [];
-            }
-            
-            appendLog(`Reading file: ${file.name} (${Math.round(file.size/1024)} KB) ...`);
-            
-            try {
-                const text = await readFileAsText(file);
-                const rows = parseTelcoCsv(text);
-                
-                if (rows.length === 0) {
-                    appendLog('Error: No data rows found in CSV file.');
-                    return [];
-                }
-                
-                STATE.rawRows = rows;
-                appendLog(`Loaded ${rows.length} rows, ${Object.keys(rows[0]).length} columns from file.`);
-                return rows;
-            } catch (error) {
-                appendLog(`Error loading file: ${error.message}`);
-                return [];
-            }
         }
 
         // Helper function to read file as text
@@ -376,7 +344,141 @@
             }
         }
 
-        // Basic button handlers for now
+        // Cleaning and imputation
+        function imputeAndClean(rows) {
+            appendLog('Cleaning data: coercing numerics, imputing TotalCharges median, mapping target...');
+            const cleaned = rows.map(r => ({ ...r }));
+            let totalChargesVals = [];
+            let totalNaNsIntroduced = 0;
+            
+            for (const r of cleaned) {
+                r.tenure = r.tenure != null ? Number(r.tenure) : null;
+                r.MonthlyCharges = r.MonthlyCharges != null ? Number(r.MonthlyCharges) : null;
+                const tc = r.TotalCharges != null ? Number(r.TotalCharges) : NaN;
+                if (isNaN(tc)) totalNaNsIntroduced++;
+                else totalChargesVals.push(tc);
+            }
+            
+            const median = (() => {
+                const a = totalChargesVals.slice().sort((a, b) => a - b);
+                const mid = Math.floor(a.length / 2);
+                return a.length % 2 ? a[mid] : (a[mid - 1] + a[mid]) / 2;
+            })();
+            
+            for (const r of cleaned) {
+                let tc = Number(r.TotalCharges);
+                if (isNaN(tc)) tc = median;
+                r.TotalCharges = tc;
+                if (r.MonthlyCharges == null || isNaN(r.MonthlyCharges)) r.MonthlyCharges = 0;
+                if (r.tenure == null || isNaN(r.tenure)) r.tenure = 0;
+                r._y = r[TARGET_COL] === 'Yes' ? 1 : 0;
+            }
+            
+            appendLog(`TotalCharges NaNs introduced: ${totalNaNsIntroduced}. Imputed with median=${median.toFixed(2)}.`);
+            STATE.cleanedRows = cleaned;
+            return cleaned;
+        }
+
+        // EDA Function - ПОЛНАЯ РЕАЛИЗАЦИЯ
+        async function runEDA(rows) {
+            appendLog('Starting EDA...');
+            tfvis.visor().open();
+            const tab = 'EDA';
+            
+            // Churn Distribution
+            const churnYes = rows.reduce((a, r) => a + (r._y === 1 ? 1 : 0), 0);
+            await tfvis.render.barchart(
+                { name: 'EDA: Churn Distribution', tab }, 
+                {
+                    values: [
+                        { x: 'No', y: rows.length - churnYes }, 
+                        { x: 'Yes', y: churnYes }
+                    ],
+                    series: ['Count']
+                }, 
+                { xLabel: 'Churn', yLabel: 'Count' }
+            );
+
+            // Missing Values
+            const cols = Object.keys(rows[0] || {});
+            const miss = cols.map(c => {
+                const m = rows.reduce((a, r) => a + ((r[c] === null || r[c] === undefined || r[c] === '') ? 1 : 0), 0);
+                return { x: c, y: m / rows.length };
+            });
+            
+            await tfvis.render.barchart(
+                { name: 'EDA: Missing Values', tab }, 
+                { values: miss, series: ['Missing%'] }, 
+                { xLabel: 'Column', yLabel: 'Fraction Missing', height: 400 }
+            );
+
+            // Numeric Features Histograms
+            for (const n of NUMERIC_FEATURES) {
+                const vals = rows.map(r => Number(r[n]) || 0).filter(v => !isNaN(v));
+                if (vals.length > 0) {
+                    await tfvis.render.histogram(
+                        { name: `EDA: ${n} Distribution`, tab }, 
+                        vals, 
+                        { xLabel: n, yLabel: 'Frequency', height: 300 }
+                    );
+                }
+            }
+
+            // Categorical Features - Churn Rates
+            for (const c of CATEGORICAL_FEATURES) {
+                const agg = {};
+                for (const r of rows) {
+                    const v = r[c] == null ? 'Unknown' : String(r[c]);
+                    if (!agg[v]) agg[v] = { cnt: 0, pos: 0 };
+                    agg[v].cnt++;
+                    agg[v].pos += (r._y === 1 ? 1 : 0);
+                }
+                
+                const bars = Object.keys(agg).map(k => ({ 
+                    x: k, 
+                    y: agg[k].pos / (agg[k].cnt || 1) 
+                }));
+                
+                await tfvis.render.barchart(
+                    { name: `EDA: Churn Rate by ${c}`, tab }, 
+                    { values: bars, series: ['Churn Rate'] }, 
+                    { xLabel: c, yLabel: 'Churn Rate', height: 350 }
+                );
+            }
+            
+            appendLog(`EDA complete. Dataset: ${rows.length} rows, Churn rate: ${(100 * churnYes / rows.length).toFixed(1)}%.`);
+        }
+
+        // Load data from user file
+        async function loadDataFromFile() {
+            const input = document.getElementById('datasetFile');
+            const file = input.files && input.files[0];
+            if (!file) {
+                appendLog('Please choose a CSV file in the "Upload dataset CSV" field.');
+                return [];
+            }
+            
+            appendLog(`Reading file: ${file.name} (${Math.round(file.size/1024)} KB) ...`);
+            
+            try {
+                const text = await readFileAsText(file);
+                const rows = parseTelcoCsv(text);
+                
+                if (rows.length === 0) {
+                    appendLog('Error: No data rows found in CSV file.');
+                    return [];
+                }
+                
+                STATE.rawRows = rows;
+                appendLog(`Loaded ${rows.length} rows, ${Object.keys(rows[0]).length} columns from file.`);
+                return rows;
+            } catch (error) {
+                appendLog(`Error loading file: ${error.message}`);
+                return [];
+            }
+        }
+
+        // Button handlers
         document.getElementById('btnLoad').addEventListener('click', async () => {
             await loadDataFromFile();
             if (STATE.rawRows.length) appendLog('Done. Next: Run EDA or Preprocess & Split.');
@@ -387,7 +489,16 @@
                 appendLog('Please upload CSV and click Load Data first.'); 
                 return; 
             }
-            appendLog('EDA functionality would run here...');
+            const cleaned = imputeAndClean(STATE.rawRows);
+            await runEDA(cleaned);
+        });
+
+        document.getElementById('btnPreprocess').addEventListener('click', async () => {
+            if (!STATE.rawRows.length) { 
+                appendLog('Please upload CSV and click Load Data first.'); 
+                return; 
+            }
+            appendLog('Preprocessing would run here...');
         });
 
         // Initialize
