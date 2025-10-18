@@ -74,12 +74,35 @@ async function loadDataFromFile() {
         appendLog('Please choose a CSV file in the "Upload dataset CSV" field.');
         return [];
     }
-    appendLog(`Reading file: ${file.name} (${Math.round(file.size / 1024)} KB) ...`);
-    const text = await file.text();
-    const rows = parseTelcoCsv(text);
-    STATE.rawRows = rows;
-    appendLog(`Loaded ${rows.length} rows, ${Object.keys(rows[0] || {}).length} columns from file.`);
-    return rows;
+    
+    appendLog(`Reading file: ${file.name} (${Math.round(file.size/1024)} KB) ...`);
+    
+    try {
+        const text = await readFileAsText(file);
+        const rows = parseTelcoCsv(text);
+        
+        if (rows.length === 0) {
+            appendLog('Error: No data rows found in CSV file.');
+            return [];
+        }
+        
+        STATE.rawRows = rows;
+        appendLog(`Loaded ${rows.length} rows, ${Object.keys(rows[0]).length} columns from file.`);
+        return rows;
+    } catch (error) {
+        appendLog(`Error loading file: ${error.message}`);
+        return [];
+    }
+}
+
+// Helper function to read file as text
+function readFileAsText(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = e => resolve(e.target.result);
+        reader.onerror = e => reject(new Error('File reading failed'));
+        reader.readAsText(file);
+    });
 }
 
 // Cleaning and imputation
