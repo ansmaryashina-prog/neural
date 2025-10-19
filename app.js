@@ -530,41 +530,71 @@ function calibrationBins(probs, labels, nBins = 10) {
 
 // EDA
 async function runEDA(rows) {
-    tfvis.visor().open();
-    const tab = 'EDA';
-    const churnYes = rows.reduce((a, r) => a + (r._y === 1 ? 1 : 0), 0);
-    
-    await tfvis.render.barchart({ name: 'EDA: Churn Distribution', tab }, {
-        values: [{ x: 'No', y: rows.length - churnYes }, { x: 'Yes', y: churnYes }],
-        series: ['count']
-    }, { xLabel: 'Churn', yLabel: 'Count' });
+  tfvis.visor.open();
+  const tab = 'EDA';
 
-    const cols = Object.keys(rows[0] || {});
-    const miss = cols.map(c => {
-        const m = rows.reduce((a, r) => a + ((r[c] === null || r[c] === undefined || r[c] === '') ? 1 : 0), 0);
-        return { x: c, y: m / rows.length };
+  // 1. Churn Distribution
+  const churnYes = rows.reduce((a, r) => a + (r.y === 1 ? 1 : 0), 0);
+  const churnNo = rows.length - churnYes;
+  await tfvis.render.barchart(
+    { name: '1. Churn Distribution', tab },
+    [
+      { x: "No", y: churnNo },
+      { x: "Yes", y: churnYes }
+    ],
+    { xLabel: "Churn Status", yLabel: "Count", height: 300 }
+  );
+
+  // 2. Missing Values
+  const cols = Object.keys(rows[0]);
+  const miss = cols.map(c => {
+    const m = rows.reduce((a, r) => a + (r[c] === null || r[c] === undefined || r[c] === "" ? 1 : 0), 0);
+    return { x: c, y: m / rows.length };
+  });
+  // Показываем только если в каких-то колонках есть пропуски
+  if (miss.some(obj => obj.y > 0)) {
+    await tfvis.render.barchart(
+      { name: '2. Missingness', tab },
+      miss,
+      { series: ['Missing'], xLabel: "Column", yLabel: "Fraction Missing", height: 250 }
+    );
+  }
+
+  // 3. Гистограммы и распределения по числовым фичам
+  for (const num of NUMERICFEATURES) {
+    const vals = rows.map(r => Number(r[num])).filter(v => !isNaN(v));
+    // График строим только если есть валидные значения
+    if (vals.length > 0) {
+      await tfvis.render.histogram(
+        { name: `3. ${num} Distribution`, tab },
+        vals,
+        { xLabel: num, yLabel: "Count of Records", height: 300 }
+      );
+    }
+  }
+
+  // 4. Барчарты по категориальным признакам с расчетом churn rate
+  for (const cat of CATEGORICALFEATURES) {
+    const agg = {};
+    rows.forEach(r => {
+      const v = r[cat] === undefined || r[cat] === null || r[cat] === "" ? "Unknown" : String(r[cat]);
+      if (!agg[v]) agg[v] = { cnt: 0, pos: 0 };
+      agg[v].cnt += 1;
+      agg[v].pos += (r.y === 1 ? 1 : 0);
     });
-    
-    await tfvis.render.barchart({ name: 'EDA: Missingness', tab }, { values: miss, series: ['Missing%'] }, { xLabel: 'Column', yLabel: 'Fraction Missing', height: 300 });
-
-    for (const n of NUMERIC_FEATURES) {
-        const vals = rows.map(r => Number(r[n]) || 0);
-        await tfvis.render.histogram({ name: `EDA: ${n} histogram`, tab }, vals, { xLabel: n, yLabel: 'Freq', height: 200 });
+    const bars = Object.keys(agg).map(k => ({
+      x: k,
+      y: agg[k].cnt > 0 ? (agg[k].pos / agg[k].cnt) * 100 : 0
+    }));
+    if (bars.length > 0) {
+      await tfvis.render.barchart(
+        { name: `Churn Rate by ${cat}`, tab },
+        bars,
+        { xLabel: cat, yLabel: "Churn Rate (%)", height: 280 }
+      );
     }
-
-    for (const c of CATEGORICAL_FEATURES) {
-        const agg = {};
-        for (const r of rows) {
-            const v = r[c] == null ? 'Unknown' : String(r[c]);
-            if (!agg[v]) agg[v] = { cnt: 0, pos: 0 };
-            agg[v].cnt++;
-            agg[v].pos += (r._y === 1 ? 1 : 0);
-        }
-        const bars = Object.keys(agg).map(k => ({ x: k, y: agg[k].pos / (agg[k].cnt || 1) }));
-        await tfvis.render.barchart({ name: `EDA: Churn rate by ${c}`, tab }, { values: bars, series: ['Churn rate'] }, { xLabel: c, yLabel: 'Churn rate', height: 280 });
-    }
-    
-    appendLog(`EDA complete. Churn rate overall: ${(100 * churnYes / rows.length).toFixed(1)}%.`);
+  }
+  appendLog(`EDA complete. Churn rate overall: ${(100 * churnYes / rows.length).toFixed(1)}%.`);
 }
 
 // Business
