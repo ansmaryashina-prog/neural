@@ -1,5 +1,6 @@
-// Telco Churn EDA + NN + Business Simulator - Client-only (Upload CSV)
-// Uses: TensorFlow.js, tfjs-vis, PapaParse
+/* Telco Churn EDA + NN + Business Simulator - Client-only (Upload CSV)
+Uses: TensorFlow.js, tfjs-vis, PapaParse
+*/
 
 const NUMERIC_FEATURES = ['tenure', 'MonthlyCharges', 'TotalCharges'];
 const CATEGORICAL_FEATURES = [
@@ -275,16 +276,15 @@ function buildMLPModel(inputDim, layerSizes, dropout, l2) {
     return model;
 }
 
-// Weighted BCE (avoid clip Tensor min/max issue)
+// Weighted BCE (numeric clip bounds to avoid clip error)
 function weightedBinaryCrossentropy(posWeight = 1) {
-    const eps = 1e-7; // numeric, not Tensor
+    const eps = 1e-7;
     const wPosNum = Math.max(1e-6, posWeight);
     return (yTrue, yPred) => tf.tidy(() => {
         const y = yTrue.asType('float32');
-        const p = yPred.asType('float32').clipByValue(eps, 1 - eps); // numeric bounds
+        const p = yPred.asType('float32').clipByValue(eps, 1 - eps);
         const one = tf.scalar(1, 'float32');
         const wPos = tf.scalar(wPosNum, 'float32');
-
         const termPos = y.mul(p.log()).mul(wPos);
         const termNeg = one.sub(y).mul(one.sub(p).log());
         const loss = tf.neg(termPos.add(termNeg).mean());
@@ -311,6 +311,28 @@ function computeSampleWeights(yTrain) {
     return w;
 }
 
+// Custom EarlyStopping (avoids tf.callbacks.earlyStopping bug)
+function makeEarlyStopping({ model, monitor = 'val_loss', patience = 8, minDelta = 1e-4 } = {}) {
+    let best = Infinity;
+    let wait = 0;
+    return {
+        onEpochEnd(epoch, logs) {
+            const val = logs?.[monitor];
+            if (val == null || !isFinite(val)) return;
+            if (val < best - minDelta) {
+                best = val;
+                wait = 0;
+            } else {
+                wait += 1;
+                if (wait >= patience) {
+                    appendLog(`Early stopping at epoch ${epoch + 1}; best ${monitor}=${best.toFixed(4)}`);
+                    model.stopTraining = true;
+                }
+            }
+        }
+    };
+}
+
 async function fitModel(model, XTrain, yTrain, XVal, yVal, sampleWeights, epochs, batchSize, tag = 'Model') {
     tfvis.visor().open();
     const nTrain = yTrain.length;
@@ -323,16 +345,22 @@ async function fitModel(model, XTrain, yTrain, XVal, yVal, sampleWeights, epochs
     const yValT = tf.tensor2d(yVal, [nVal, 1]);
 
     const historyContainer = { name: `${tag} Training`, tab: 'Training' };
+    const visCb = tfvis.show.fitCallbacks(historyContainer, ['loss', 'val_loss', 'binaryAccuracy', 'val_binaryAccuracy'], { callbacks: ['onEpochEnd'] });
+    const logCb = {
+        onEpochEnd(epoch, logs) {
+            const acc = logs.binaryAccuracy ?? logs.acc;
+            appendLog(`${tag} epoch ${epoch + 1}/${epochs} — loss=${logs.loss?.toFixed(4)} val_loss=${logs.val_loss?.toFixed(4)} acc=${acc != null ? acc.toFixed(4) : '-'}`);
+        }
+    };
+    const esCb = makeEarlyStopping({ model, monitor: 'val_loss', patience: 8, minDelta: 1e-4 });
 
     try {
         return await model.fit(xTrainT, yTrainT, {
             epochs,
             batchSize,
             validationData: [xValT, yValT],
-            callbacks: [
-                tfvis.show.fitCallbacks(historyContainer, ['loss', 'val_loss', 'binaryAccuracy', 'val_binaryAccuracy'], { callbacks: ['onEpochEnd'] }),
-                tf.callbacks.earlyStopping({ monitor: 'val_loss', patience: 8, minDelta: 1e-4 })
-            ]
+            callbacks: [visCb, logCb, esCb]
+            // no sampleWeight (browser TF.js limitation)
         });
     } finally {
         xTrainT.dispose();
@@ -356,7 +384,7 @@ function predictProba(model, X) {
     });
 }
 
-// Metrics
+// Metrics helpers
 function rocCurve(probs, labels) {
     const pairs = [];
     for (let i = 0; i < probs.length; i++) pairs.push([probs[i], labels[i]]);
@@ -541,7 +569,7 @@ async function runEDA(rows) {
     appendLog(`EDA complete. Churn rate overall: ${(100 * churnYes / rows.length).toFixed(1)}%.`);
 }
 
-// Calibration/plots
+// Plots used in evaluation
 async function renderCurves(name, probs, labels, tab = 'Evaluation') {
     const roc = rocCurve(probs, labels);
     const rocPairs = roc.fpr.map((x, i) => ({ x, y: roc.tpr[i] })).sort((a, b) => a.x - b.x);
