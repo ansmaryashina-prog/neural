@@ -74,9 +74,9 @@ async function loadDataFromFile() {
         appendLog('Please choose a CSV file in the "Upload dataset CSV" field.');
         return [];
     }
-    
+
     appendLog(`Reading file: ${file.name} (${Math.round(file.size/1024)} KB) ...`);
-    
+
     try {
         const text = await readFileAsText(file);
         const rows = parseTelcoCsv(text);
@@ -111,7 +111,7 @@ function imputeAndClean(rows) {
     const cleaned = rows.map(r => ({ ...r }));
     let totalChargesVals = [];
     let totalNaNsIntroduced = 0;
-    
+
     for (const r of cleaned) {
         r.tenure = r.tenure != null ? Number(r.tenure) : null;
         r.MonthlyCharges = r.MonthlyCharges != null ? Number(r.MonthlyCharges) : null;
@@ -119,13 +119,13 @@ function imputeAndClean(rows) {
         if (isNaN(tc)) totalNaNsIntroduced++;
         else totalChargesVals.push(tc);
     }
-    
+
     const median = (() => {
         const a = totalChargesVals.slice().sort((a, b) => a - b);
         const mid = Math.floor(a.length / 2);
         return a.length % 2 ? a[mid] : (a[mid - 1] + a[mid]) / 2;
     })();
-    
+
     for (const r of cleaned) {
         let tc = Number(r.TotalCharges);
         if (isNaN(tc)) tc = median;
@@ -134,7 +134,7 @@ function imputeAndClean(rows) {
         if (r.tenure == null || isNaN(r.tenure)) r.tenure = 0;
         r._y = r[TARGET_COL] === 'Yes' ? 1 : 0;
     }
-    
+
     appendLog(`TotalCharges NaNs introduced: ${totalNaNsIntroduced}. Imputed with median=${median.toFixed(2)}.`);
     STATE.cleanedRows = cleaned;
     return cleaned;
@@ -147,7 +147,7 @@ function stratifiedSplit(rows, seed, fractions = { train: 0.6, val: 0.2, test: 0
     const rng = mulberry32(seed);
     seededShuffle(idxPos, rng);
     seededShuffle(idxNeg, rng);
-    
+
     const take = (arr, fracs) => {
         const n = arr.length;
         const nTrain = Math.round(fracs.train * n);
@@ -157,23 +157,23 @@ function stratifiedSplit(rows, seed, fractions = { train: 0.6, val: 0.2, test: 0
         const test = arr.slice(nTrain + nVal);
         return { train, val, test };
     };
-    
+
     const pos = take(idxPos, fractions);
     const neg = take(idxNeg, fractions);
     const trainIdxs = pos.train.concat(neg.train);
     const valIdxs = pos.val.concat(neg.val);
     const testIdxs = pos.test.concat(neg.test);
-    
+
     seededShuffle(trainIdxs, rng);
     seededShuffle(valIdxs, rng);
     seededShuffle(testIdxs, rng);
-    
+
     const stats = s => {
         const ys = s.map(i => rows[i]._y);
         const rate = ys.reduce((a, b) => a + b, 0) / ys.length;
         return { size: s.length, churnRate: rate };
     };
-    
+
     const split = {
         trainIdxs, valIdxs, testIdxs,
         stats: {
@@ -182,7 +182,7 @@ function stratifiedSplit(rows, seed, fractions = { train: 0.6, val: 0.2, test: 0
             test: stats(testIdxs)
         }
     };
-    
+
     appendLog(`Split sizes: train=${split.stats.train.size} (churn=${(100 * split.stats.train.churnRate).toFixed(1)}%), val=${split.stats.val.size} (${(100 * split.stats.val.churnRate).toFixed(1)}%), test=${split.stats.test.size} (${(100 * split.stats.test.churnRate).toFixed(1)}%)`);
     STATE.split = split;
     return split;
@@ -199,7 +199,7 @@ function buildPreprocessingMaps(trainRows) {
         }
         categoryMaps[c] = Array.from(set.values());
     }
-    
+
     const numStats = {};
     for (const n of NUMERIC_FEATURES) {
         const vals = trainRows.map(r => Number(r[n])).filter(v => isFinite(v));
@@ -207,13 +207,13 @@ function buildPreprocessingMaps(trainRows) {
         const std = Math.sqrt(vals.reduce((a, b) => a + (b - mean) * (b - mean), 0) / Math.max(1, vals.length));
         numStats[n] = { mean, std: std === 0 ? 1 : std };
     }
-    
+
     const featureOrder = [];
     for (const n of NUMERIC_FEATURES) featureOrder.push(n);
     for (const c of CATEGORICAL_FEATURES) {
         for (const cat of categoryMaps[c]) featureOrder.push(`${c}__${cat}`);
     }
-    
+
     const maps = { categoryMaps, numStats, featureOrder, numeric: NUMERIC_FEATURES, categorical: CATEGORICAL_FEATURES };
     STATE.maps = maps;
     appendLog(`Built preprocessing maps. One-hot dims: ${featureOrder.length - NUMERIC_FEATURES.length}. Total features: ${featureOrder.length}.`);
@@ -229,7 +229,7 @@ function transformRows(rows, maps) {
     const meta = { monthly: new Float32Array(n), ids: [], raw: rows };
     const idxMap = {};
     maps.featureOrder.forEach((f, i) => idxMap[f] = i);
-    
+
     for (let i = 0; i < n; i++) {
         const r = rows[i];
         const id = i * d;
@@ -257,7 +257,7 @@ function transformRows(rows, maps) {
         meta.monthly[i] = Number(r.MonthlyCharges) || 0;
         meta.ids.push(r[ID_COL] || String(i));
     }
-    
+
     return { X, y, meta, nRows: n, nCols: d };
 }
 
@@ -276,7 +276,7 @@ function buildLogisticModel(inputDim, l2) {
 function buildMLPModel(inputDim, layerSizes, dropout, l2, learningRate) {
     const model = tf.sequential();
     let first = true;
-    
+
     for (let i = 0; i < layerSizes.length; i++) {
         const units = layerSizes[i];
         model.add(tf.layers.dense({
@@ -288,7 +288,7 @@ function buildMLPModel(inputDim, layerSizes, dropout, l2, learningRate) {
         first = false;
         if (dropout > 0) model.add(tf.layers.dropout({ rate: dropout }));
     }
-    
+
     model.add(tf.layers.dense({ units: 1, activation: 'sigmoid' }));
     const opt = tf.train.adam(learningRate);
     model.compile({ optimizer: opt, loss: 'binaryCrossentropy', metrics: ['binaryAccuracy'] });
@@ -321,7 +321,7 @@ async function fitModel(model, XTrain, yTrain, XVal, yVal, sampleWeights, epochs
 
     const historyContainer = { name: `${tag} Training`, tab: 'Training' };
     let hist;
-    
+
     try {
         hist = await model.fit(xTrainT, yTrainT, {
             epochs,
@@ -357,7 +357,7 @@ function predictProba(model, X) {
     const n = X.length ? (X.length / STATE.maps.featureOrder.length) : 0;
     if (n === 0) return new Float32Array([]);
     const d = STATE.maps.featureOrder.length;
-    
+
     return tf.tidy(() => {
         const xT = tf.tensor2d(X, [n, d]);
         const preds = model.predict(xT);
@@ -373,14 +373,14 @@ function rocCurve(probs, labels) {
     const pairs = [];
     for (let i = 0; i < probs.length; i++) pairs.push([probs[i], labels[i]]);
     pairs.sort((a, b) => b[0] - a[0]);
-    
+
     let P = 0, N = 0;
     for (const p of pairs) (p[1] === 1 ? P++ : N++);
-    
+
     let tp = 0, fp = 0;
     const tpr = [0], fpr = [0];
     let lastProb = Infinity;
-    
+
     for (let i = 0; i < pairs.length; i++) {
         const [prob, y] = pairs[i];
         if (prob !== lastProb) {
@@ -391,7 +391,7 @@ function rocCurve(probs, labels) {
         if (y === 1) tp++;
         else fp++;
     }
-    
+
     tpr.push(1);
     fpr.push(1);
     return { fpr, tpr };
@@ -401,11 +401,11 @@ function prCurve(probs, labels) {
     const pairs = [];
     for (let i = 0; i < probs.length; i++) pairs.push([probs[i], labels[i]]);
     pairs.sort((a, b) => b[0] - a[0]);
-    
+
     let tp = 0, fp = 0, P = labels.reduce((a, b) => a + b, 0);
     const precision = [], recall = [];
     let lastProb = Infinity;
-    
+
     for (let i = 0; i < pairs.length; i++) {
         const [prob, y] = pairs[i];
         if (prob !== lastProb) {
@@ -418,7 +418,7 @@ function prCurve(probs, labels) {
         if (y === 1) tp++;
         else fp++;
     }
-    
+
     precision.push(tp + fp === 0 ? 1 : tp / (tp + fp));
     recall.push(P === 0 ? 0 : tp / P);
     return { precision, recall };
@@ -490,13 +490,13 @@ function decileLift(probs, labels) {
     const n = probs.length;
     const idx = Array.from({ length: n }, (_, i) => i);
     idx.sort((a, b) => probs[b] - probs[a]);
-    
+
     const decileSize = Math.max(1, Math.floor(n / 10));
     const rates = [];
     const cumCapture = [];
     const totalPos = labels.reduce((a, b) => a + b, 0);
     let cumPos = 0;
-    
+
     for (let d = 0; d < 10; d++) {
         const start = d * decileSize;
         const end = d === 9 ? n : start + decileSize;
@@ -507,14 +507,14 @@ function decileLift(probs, labels) {
         cumPos += pos;
         cumCapture.push({ x: `D${d + 1}`, y: totalPos === 0 ? 0 : cumPos / totalPos });
     }
-    
+
     return { rates, cumCapture };
 }
 
 function calibrationBins(probs, labels, nBins = 10) {
     const pairs = probs.map((p, i) => ({ p, y: labels[i] })).sort((a, b) => a.p - b.p);
     const bins = [];
-    
+
     for (let b = 0; b < nBins; b++) {
         const start = Math.floor(b * pairs.length / nBins);
         const end = Math.floor((b + 1) * pairs.length / nBins);
@@ -523,78 +523,61 @@ function calibrationBins(probs, labels, nBins = 10) {
         const avgY = slice.reduce((a, s) => a + s.y, 0) / (slice.length || 1);
         bins.push({ bin: b + 1, avgP, avgY, size: slice.length });
     }
-    
+
     const ece = bins.reduce((a, bin) => a + (bin.size / (probs.length || 1)) * Math.abs(bin.avgP - bin.avgY), 0);
     return { bins, ece };
 }
 
 // EDA
 async function runEDA(rows) {
-  tfvis.visor.open();
-  const tab = 'EDA';
+    tfvis.visor().open();
+    const tab = 'EDA';
+    const churnYes = rows.reduce((a, r) => a + (r._y === 1 ? 1 : 0), 0);
 
-  // 1. Churn Distribution
-  const churnYes = rows.reduce((a, r) => a + (r.y === 1 ? 1 : 0), 0);
-  const churnNo = rows.length - churnYes;
-  await tfvis.render.barchart(
-    { name: '1. Churn Distribution', tab },
-    [
-      { x: "No", y: churnNo },
-      { x: "Yes", y: churnYes }
-    ],
-    { xLabel: "Churn Status", yLabel: "Count", height: 300 }
-  );
-
-  // 2. Missing Values
-  const cols = Object.keys(rows[0]);
-  const miss = cols.map(c => {
-    const m = rows.reduce((a, r) => a + (r[c] === null || r[c] === undefined || r[c] === "" ? 1 : 0), 0);
-    return { x: c, y: m / rows.length };
-  });
-  // Показываем только если в каких-то колонках есть пропуски
-  if (miss.some(obj => obj.y > 0)) {
+    // FIX: use array of { index, value } (not { values: [{x,y}] })
+    const churnData = [
+        { index: 'No', value: rows.length - churnYes },
+        { index: 'Yes', value: churnYes }
+    ];
     await tfvis.render.barchart(
-      { name: '2. Missingness', tab },
-      miss,
-      { series: ['Missing'], xLabel: "Column", yLabel: "Fraction Missing", height: 250 }
+        { name: 'EDA: Churn Distribution', tab },
+        churnData,
+        { xLabel: 'Churn', yLabel: 'Count' }
     );
-  }
 
-  // 3. Гистограммы и распределения по числовым фичам
-  for (const num of NUMERICFEATURES) {
-    const vals = rows.map(r => Number(r[num])).filter(v => !isNaN(v));
-    // График строим только если есть валидные значения
-    if (vals.length > 0) {
-      await tfvis.render.histogram(
-        { name: `3. ${num} Distribution`, tab },
-        vals,
-        { xLabel: num, yLabel: "Count of Records", height: 300 }
-      );
-    }
-  }
-
-  // 4. Барчарты по категориальным признакам с расчетом churn rate
-  for (const cat of CATEGORICALFEATURES) {
-    const agg = {};
-    rows.forEach(r => {
-      const v = r[cat] === undefined || r[cat] === null || r[cat] === "" ? "Unknown" : String(r[cat]);
-      if (!agg[v]) agg[v] = { cnt: 0, pos: 0 };
-      agg[v].cnt += 1;
-      agg[v].pos += (r.y === 1 ? 1 : 0);
+    const cols = Object.keys(rows[0] || {});
+    const miss = cols.map(c => {
+        const m = rows.reduce((a, r) => a + ((r[c] === null || r[c] === undefined || r[c] === '') ? 1 : 0), 0);
+        return { index: c, value: m / rows.length };
     });
-    const bars = Object.keys(agg).map(k => ({
-      x: k,
-      y: agg[k].cnt > 0 ? (agg[k].pos / agg[k].cnt) * 100 : 0
-    }));
-    if (bars.length > 0) {
-      await tfvis.render.barchart(
-        { name: `Churn Rate by ${cat}`, tab },
-        bars,
-        { xLabel: cat, yLabel: "Churn Rate (%)", height: 280 }
-      );
+    await tfvis.render.barchart(
+        { name: 'EDA: Missingness', tab },
+        miss,
+        { xLabel: 'Column', yLabel: 'Fraction Missing', height: 300 }
+    );
+
+    for (const n of NUMERIC_FEATURES) {
+        const vals = rows.map(r => Number(r[n]) || 0);
+        await tfvis.render.histogram({ name: `EDA: ${n} histogram`, tab }, vals, { xLabel: n, yLabel: 'Freq', height: 200 });
     }
-  }
-  appendLog(`EDA complete. Churn rate overall: ${(100 * churnYes / rows.length).toFixed(1)}%.`);
+
+    for (const c of CATEGORICAL_FEATURES) {
+        const agg = {};
+        for (const r of rows) {
+            const v = r[c] == null ? 'Unknown' : String(r[c]);
+            if (!agg[v]) agg[v] = { cnt: 0, pos: 0 };
+            agg[v].cnt++;
+            agg[v].pos += (r._y === 1 ? 1 : 0);
+        }
+        const bars = Object.keys(agg).map(k => ({ index: k, value: agg[k].pos / (agg[k].cnt || 1) }));
+        await tfvis.render.barchart(
+            { name: `EDA: Churn rate by ${c}`, tab },
+            bars,
+            { xLabel: c, yLabel: 'Churn rate', height: 280 }
+        );
+    }
+
+    appendLog(`EDA complete. Churn rate overall: ${(100 * churnYes / rows.length).toFixed(1)}%.`);
 }
 
 // Business
@@ -627,7 +610,7 @@ function businessProfitTopK(probs, labels, monthly, params, kMin = 5, kMax = 40)
     const n = probs.length;
     const idx = Array.from({ length: n }, (_, i) => i).sort((a, b) => probs[b] - probs[a]);
     const results = [];
-    
+
     for (let k = kMin; k <= kMax; k += 1) {
         const m = Math.floor(n * (k / 100));
         let profit = 0, tp = 0, targeted = m;
@@ -643,7 +626,7 @@ function businessProfitTopK(probs, labels, monthly, params, kMin = 5, kMax = 40)
         const recall = pos === 0 ? 0 : tp / pos;
         results.push({ k, targeted, profit, precision, recall });
     }
-    
+
     const best = results.reduce((a, b) => b.profit > a.profit ? b : a, { profit: -Infinity });
     return { results, best };
 }
@@ -659,7 +642,7 @@ async function permutationImportance(valRows, maps, model, maxN = 2000) {
 
     const feats = [...NUMERIC_FEATURES, ...CATEGORICAL_FEATURES];
     const importance = [];
-    
+
     for (const f of feats) {
         const perm = sample.map(r => ({ ...r }));
         const vals = perm.map(r => r[f]);
@@ -679,7 +662,7 @@ async function permutationImportance(valRows, maps, model, maxN = 2000) {
         const auc = aucFromCurve(pr.recall, pr.precision);
         importance.push({ feature: f, delta: basePRAUC - auc });
     }
-    
+
     importance.sort((a, b) => b.delta - a.delta);
     return { importance, basePRAUC };
 }
@@ -691,19 +674,19 @@ function segmentMetrics(rows, probs, labels) {
         InternetService: Array.from(new Set(rows.map(r => r.InternetService || 'Unknown'))),
         SeniorCitizen: Array.from(new Set(rows.map(r => String(r.SeniorCitizen || '0'))))
     };
-    
+
     const results = [];
-    
+
     function segmentAUC(subProbs, subLabels) {
         const roc = rocCurve(subProbs, subLabels);
         const pairs = roc.fpr.map((x, i) => [x, roc.tpr[i]]).sort((a, b) => a[0] - b[0]);
         return aucFromCurve(pairs.map(p => p[0]), pairs.map(p => p[1]));
     }
-    
+
     function segmentECE(subProbs, subLabels) {
         return calibrationBins(subProbs, subLabels, 10).ece;
     }
-    
+
     for (const [key, values] of Object.entries(segments)) {
         for (const v of values) {
             const idx = rows.map((r, i) => ({ match: String(r[key] || 'Unknown') === String(v), i }))
@@ -719,7 +702,7 @@ function segmentMetrics(rows, probs, labels) {
             });
         }
     }
-    
+
     return results.sort((a, b) => a.segment.localeCompare(b.segment));
 }
 
@@ -728,13 +711,13 @@ async function renderCurves(name, probs, labels, tab = 'Evaluation') {
     const roc = rocCurve(probs, labels);
     const rocPairs = roc.fpr.map((x, i) => ({ x, y: roc.tpr[i] })).sort((a, b) => a.x - b.x);
     const rocAUC = aucFromCurve(rocPairs.map(p => p.x), rocPairs.map(p => p.y));
-    
+
     await tfvis.render.linechart({ name: `${name}: ROC (AUC=${rocAUC.toFixed(3)})`, tab }, { values: rocPairs, series: ['ROC'] }, { xLabel: 'FPR', yLabel: 'TPR', width: 400, height: 300 });
 
     const pr = prCurve(probs, labels);
     const prPairs = pr.recall.map((x, i) => ({ x, y: pr.precision[i] })).sort((a, b) => a.x - b.x);
     const prAUC = aucFromCurve(prPairs.map(p => p.x), prPairs.map(p => p.y));
-    
+
     await tfvis.render.linechart({ name: `${name}: PR (AUC=${prAUC.toFixed(3)})`, tab }, { values: prPairs, series: ['PR'] }, { xLabel: 'Recall', yLabel: 'Precision', width: 400, height: 300 });
 
     return { rocAUC, prAUC };
@@ -743,11 +726,11 @@ async function renderCurves(name, probs, labels, tab = 'Evaluation') {
 async function renderCalibration(name, probs, labels, tab = 'Evaluation') {
     const { bins, ece } = calibrationBins(probs, labels, 10);
     const points = bins.map(b => ({ x: b.avgP, y: b.avgY }));
-    
+
     await tfvis.render.scatterplot({ name: `${name}: Calibration (ECE=${ece.toFixed(3)})`, tab },
         { values: points, series: ['bins'] },
         { xLabel: 'Predicted', yLabel: 'Observed', xAxisDomain: [0, 1], yAxisDomain: [0, 1], width: 400, height: 300 });
-    
+
     const bs = brierScore(probs, labels);
     appendLog(`${name} Calibration: Brier=${bs.toFixed(4)}, ECE=${ece.toFixed(4)}.`);
     return { brier: bs, ece };
@@ -755,15 +738,36 @@ async function renderCalibration(name, probs, labels, tab = 'Evaluation') {
 
 async function renderDecileLift(name, probs, labels, tab = 'Evaluation') {
     const { rates, cumCapture } = decileLift(probs, labels);
-    
-    await tfvis.render.barchart({ name: `${name}: Decile churn rate`, tab }, { values: rates, series: ['rate'] }, { xLabel: 'Decile (High->Low risk)', yLabel: 'Churn rate', height: 300 });
-    await tfvis.render.linechart({ name: `${name}: Cumulative capture`, tab }, { values: cumCapture.map(p => ({ x: parseInt(p.x.replace('D', '')), y: p.y })), series: ['capture'] }, { xLabel: 'Decile', yLabel: 'Cumulative capture', height: 300 });
+
+    // FIX: convert to { index, value } and pass array directly
+    const ratesBars = rates.map(r => ({ index: r.x, value: r.y }));
+    await tfvis.render.barchart(
+        { name: `${name}: Decile churn rate`, tab },
+        ratesBars,
+        { xLabel: 'Decile (High->Low risk)', yLabel: 'Churn rate', height: 300 }
+    );
+
+    await tfvis.render.linechart(
+    { name: `${name}: Cumulative capture`, tab },
+    { values: cumCapture.map(p => ({ x: parseInt(p.x.replace('D', '')), y: p.y })), series: ['capture'] },
+    { xLabel: 'Decile', yLabel: 'Cumulative capture', height: 300 }
+);
 }
 
 function renderMetricsTable(containerId, metrics) {
     const el = document.getElementById(containerId);
     const fmt = x => typeof x === 'number' ? x.toFixed(4) : x;
-    
+
     el.innerHTML = `
         <div><b>Model Comparison (Test)</b></div>
-        <div>ROC AUC — Baseline: ${fmt(metrics.baseline.rocAUC)}, NN:
+        <div>ROC AUC — Baseline: ${fmt(metrics.baseline.rocAUC)}, NN: ${fmt(metrics.nn.rocAUC)}</div>
+        <div>PR AUC — Baseline: ${fmt(metrics.baseline.prAUC)}, NN: ${fmt(metrics.nn.prAUC)}</div>
+        <hr/>
+        <div><b>Operating Threshold: ${metrics.threshold.toFixed(2)}</b></div>
+        <div>Accuracy: ${fmt(metrics.nnAtThr.acc)} | Precision: ${fmt(metrics.nnAtThr.prec)} | Recall: ${fmt(metrics.nnAtThr.rec)} | F1: ${fmt(metrics.nnAtThr.f1)}</div>
+        <div>Confusion Matrix (NN): TP=${metrics.nnAtThr.TP}, FP=${metrics.nnAtThr.FP}, TN=${metrics.nnAtThr.TN}, FN=${metrics.nnAtThr.FN}</div>
+        <div>Brier Score (NN): ${fmt(metrics.brier)}, ECE (NN): ${fmt(metrics.ece)}</div>
+        <hr/>
+        <div class="small">Note: If NN PR AUC ≤ Baseline, the NN may be underfitting; try deeper layers, more epochs, or adjust learning rate.</div>
+    `;
+}
