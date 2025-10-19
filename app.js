@@ -1188,4 +1188,4 @@ function applyPreprocessingConfig(cfg) {
     updateThresholdNotes();
 }
 
-main().catch(e => appendLog('Error: ' + e.message));
+window.addEventListener('DOMContentLoaded', () => { appendLog('App loaded. Ready. Upload your CSV and click "Load Data".'); main().catch(e => appendLog('Error during startup: ' + e.message)); });
