@@ -880,10 +880,18 @@ function categoryDependence(rows, probs, col) {
 
 // Main
 async function main() {
-    document.getElementById('btnLoad').addEventListener('click', async () => {
-        await loadDataFromFile();
-        if (STATE.rawRows.length) appendLog('Done. Next: Run EDA or Preprocess & Split.');
-    });
+// Diagnostics: file chosen + Load button
+document.getElementById('datasetFile').addEventListener('change', (e) => {
+const f = e.target.files && e.target.files[0];
+if (f) appendLog(Selected file: ${f.name} (${Math.round(f.size/1024)} KB));
+else appendLog('No file selected.');
+});
+
+document.getElementById('btnLoad').addEventListener('click', async () => {
+appendLog('Load button clicked.');
+const rows = await loadDataFromFile();
+if (rows.length) appendLog('✓ Data loaded. Next: Run EDA or Preprocess & Split.');
+});   
 
     document.getElementById('btnEDA').addEventListener('click', async () => {
         if (!STATE.rawRows.length) { 
