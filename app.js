@@ -276,18 +276,53 @@ function buildMLPModel(inputDim, layerSizes, dropout, l2, learningRate) {
     return model;
 }
 
-function compileModel(model, learningRate) {
+function weightedBinaryCrossentropy(posWeight = 1) {
+    // weights positives by posWeight, negatives by 1
+    return (yTrue, yPred) => tf.tidy(() => {
+        const eps = tf.scalar(1e-7);
+        const one = tf.scalar(1);
+        const y = yTrue;
+        const p = yPred.clipByValue(eps, one.sub(eps));
+        const wPos = tf.scalar(Math.max(1e-6, posWeight));
+        
+        const termPos = y.mul(tf.log(p)).mul(wPos);        // w_pos * y * log(p)
+        const termNeg = one.sub(y).mul(tf.log(one.sub(p))); // (1-y) * log(1-p)
+        const loss = tf.neg(tf.mean(termPos.add(termNeg)));
+        
+        return loss;
+    });
+}
+
+function compileModel(model, learningRate, posWeight = null) {
     const opt = tf.train.adam(learningRate);
-    model.compile({ optimizer: opt, loss: 'binaryCrossentropy', metrics: ['binaryAccuracy'] });
+    const loss = (posWeight && isFinite(posWeight) && posWeight > 0)
+        ? weightedBinaryCrossentropy(posWeight)
+        : 'binaryCrossentropy';
+    
+    model.compile({ 
+        optimizer: opt, 
+        loss, 
+        metrics: ['binaryAccuracy'] 
+    });
 }
 
 function computeSampleWeights(yTrain) {
     let pos = 0, neg = 0;
-    for (let i = 0; i < yTrain.length; i++) (yTrain[i] === 1 ? pos++ : neg++);
+    
+    for (let i = 0; i < yTrain.length; i++) {
+        yTrain[i] === 1 ? pos++ : neg++;
+    }
+    
     const wPos = pos > 0 ? neg / pos : 1;
     const w = new Float32Array(yTrain.length);
-    for (let i = 0; i < yTrain.length; i++) w[i] = yTrain[i] === 1 ? wPos : 1.0;
+    
+    for (let i = 0; i < yTrain.length; i++) {
+        w[i] = yTrain[i] === 1 ? wPos : 1.0;
+    }
+    
+    STATE.posWeight = wPos; // add this line
     appendLog(`Computed sample weights: posWeight=${wPos.toFixed(3)}, nPos=${pos}, nNeg=${neg}.`);
+    
     return w;
 }
 
@@ -295,43 +330,39 @@ async function fitModel(model, XTrain, yTrain, XVal, yVal, sampleWeights, epochs
     const nTrain = yTrain.length;
     const nVal = yVal.length;
     const d = XTrain.length / nTrain;
+    
     const xTrainT = tf.tensor2d(XTrain, [nTrain, d]);
     const yTrainT = tf.tensor2d(yTrain, [nTrain, 1]);
     const xValT = tf.tensor2d(XVal, [nVal, d]);
     const yValT = tf.tensor2d(yVal, [nVal, 1]);
 
     const historyContainer = { name: `${tag} Training`, tab: 'Training' };
-    let hist;
-    
+
     try {
-        hist = await model.fit(xTrainT, yTrainT, {
+        return await model.fit(xTrainT, yTrainT, {
             epochs,
             batchSize,
             validationData: [xValT, yValT],
             callbacks: [
-                tfvis.show.fitCallbacks(historyContainer, ['loss', 'val_loss', 'binaryAccuracy', 'val_binaryAccuracy'], { callbacks: ['onEpochEnd'] }),
-                tf.callbacks.earlyStopping({ monitor: 'val_loss', patience: 8, minDelta: 1e-4 })
-            ],
-            sampleWeight: tf.tensor1d(sampleWeights)
-        });
-    } catch (err) {
-        appendLog('Warning: sampleWeight not supported in this environment. Training without weights. ' + err.message);
-        hist = await model.fit(xTrainT, yTrainT, {
-            epochs,
-            batchSize,
-            validationData: [xValT, yValT],
-            callbacks: [
-                tfvis.show.fitCallbacks(historyContainer, ['loss', 'val_loss', 'binaryAccuracy', 'val_binaryAccuracy'], { callbacks: ['onEpochEnd'] }),
-                tf.callbacks.earlyStopping({ monitor: 'val_loss', patience: 8, minDelta: 1e-4 })
+                tfvis.show.fitCallbacks(
+                    historyContainer, 
+                    ['loss', 'val_loss', 'binaryAccuracy', 'val_binaryAccuracy'], 
+                    { callbacks: ['onEpochEnd'] }
+                ),
+                tf.callbacks.earlyStopping({ 
+                    monitor: 'val_loss', 
+                    patience: 8, 
+                    minDelta: 1e-4 
+                })
             ]
+            // sampleWeight: removed
         });
     } finally {
-        xTrainT.dispose(); 
-        yTrainT.dispose(); 
-        xValT.dispose(); 
+        xTrainT.dispose();
+        yTrainT.dispose();
+        xValT.dispose();
         yValT.dispose();
     }
-    return hist;
 }
 
 function predictProba(model, X) {
@@ -930,7 +961,7 @@ if (rows.length) appendLog('✓ Data loaded. Next: Run EDA or Preprocess & Split
         const { l2, lr, batch, epochs } = getHyperparams();
         const inputDim = STATE.transformed.train.nCols;
         const model = buildLogisticModel(inputDim, l2);
-        compileModel(model, lr);
+        compileModel(model, lr, STATE.posWeight);
         appendLog('Training Baseline Logistic Regression...');
         await fitModel(model, STATE.transformed.train.X, STATE.transformed.train.y, STATE.transformed.val.X, STATE.transformed.val.y, STATE.sampleWeights, epochs, batch, 'Baseline');
         STATE.models.baseline = model;
