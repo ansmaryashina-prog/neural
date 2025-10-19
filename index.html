@@ -2,332 +2,304 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Telco Churn Analyzer</title>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-vis@1.5.1/dist/tfjs-vis.umd.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+    <title>Telco Churn: EDA + TensorFlow.js + Business Simulator (Upload CSV)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <style>
         body {
             font-family: Arial, sans-serif;
-            margin: 20px;
-            background-color: #f5f5f5;
+            margin: 0;
+            padding: 0 0 80px 0;
+            background: #f7f7fb;
+            color: #222;
+        }
+        header {
+            background: #3f51b5;
+            color: #fff;
+            padding: 16px 20px;
+        }
+        header h1 {
+            margin: 0;
+            font-size: 20px;
+        }
+        header p {
+            margin: 6px 0 0 0;
+            font-size: 13px;
+        }
+        a, a:visited {
+            color: #ffe082;
         }
         .container {
+            padding: 16px 20px;
             max-width: 1200px;
             margin: 0 auto;
-            background: white;
-            padding: 20px;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 12px;
+        }
+        .card {
+            background: #fff;
             border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+            padding: 12px;
         }
-        .section {
-            margin: 20px 0;
-            padding: 15px;
+        h2 {
+            font-size: 18px;
+            margin: 4px 0 10px;
+        }
+        h3 {
+            font-size: 16px;
+            margin: 6px 0 8px;
+        }
+        label {
+            display: block;
+            font-size: 12px;
+            color: #444;
+            margin-top: 6px;
+        }
+        input[type="text"], input[type="number"], input[type="file"] {
+            width: 100%;
+            padding: 6px 8px;
             border: 1px solid #ddd;
-            border-radius: 5px;
-            background: #fafafa;
+            border-radius: 4px;
         }
-        .section h3 {
-            margin-top: 0;
-            color: #333;
-        }
-        button {
-            background: #007cba;
-            color: white;
+        .btn {
+            background: #3f51b5;
+            color: #fff;
             border: none;
-            padding: 8px 15px;
-            margin: 5px;
+            padding: 8px 10px;
             border-radius: 4px;
             cursor: pointer;
+            margin: 4px 4px 0 0;
+            font-size: 13px;
         }
-        button:hover {
-            background: #005a87;
+        .btn.secondary {
+            background: #607d8b;
+        }
+        .btn.success {
+            background: #2e7d32;
+        }
+        .btn.warn {
+            background: #ef6c00;
+        }
+        .btn.gray {
+            background: #757575;
+        }
+        .row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
         }
         #log {
-            background: #000;
-            color: #0f0;
-            padding: 15px;
-            border-radius: 5px;
-            font-family: monospace;
-            font-size: 12px;
-            height: 300px;
-            overflow-y: auto;
             white-space: pre-wrap;
+            background: #0d1117;
+            color: #d1d5da;
+            padding: 8px;
+            border-radius: 8px;
+            height: 200px;
+            overflow: auto;
+            font-family: ui-monospace, Menlo, Consolas, monospace;
+            font-size: 12px;
+        }
+        .note {
+            font-size: 12px;
+            color: #666;
+        }
+        .metrics {
+            font-family: ui-monospace, Menlo, Consolas, monospace;
+            background: #fff;
+            border-radius: 8px;
+            padding: 8px;
+            border: 1px solid #eee;
+        }
+        footer {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: #fff;
+            border-top: 1px solid #eee;
+            padding: 6px 12px;
+            font-size: 12px;
+            color: #666;
+        }
+        .section-title {
+            margin-top: 16px;
+            font-size: 17px;
+            font-weight: 600;
+        }
+        .small {
+            font-size: 12px;
+            color: #555;
+        }
+        textarea {
+            width: 100%;
+            min-height: 100px;
+            padding: 6px 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: ui-monospace, Menlo, Consolas, monospace;
+            font-size: 12px;
         }
     </style>
 </head>
 <body>
+    <header>
+        <h1>Telco Customer Churn: EDA + Neural Network + Business Simulator (Upload CSV, Client-only)</h1>
+        <p>Upload the Telco CSV from your computer. Expected schema: WA_Fn-UseC_-Telco-Customer-Churn.csv. Plots open in the tfjs-vis visor.</p>
+    </header>
+    
     <div class="container">
-        <h1>📊 Telco Churn Analyzer</h1>
+        <div class="grid">
+            <div class="card">
+                <h2>Controls</h2>
+                <label>
+                    Upload dataset CSV
+                    <input type="file" id="datasetFile" accept=".csv,text/csv">
+                </label>
+                <div class="note">
+                    Required columns include: customerID, tenure, MonthlyCharges, TotalCharges, Churn, and the listed categorical features.
+                </div>
+                
+                <div class="row" style="margin-top:6px;">
+                    <button id="btnLoad" class="btn">Load Data</button>
+                    <button id="btnEDA" class="btn">Run EDA</button>
+                    <button id="btnPreprocess" class="btn">Preprocess & Split</button>
+                </div>
 
-        <!-- Data Loading Section -->
-        <div class="section">
-            <h3>📁 1. Data Loading</h3>
-            <input type="file" id="datasetFile" accept=".csv" />
-            <button id="btnLoad">Load Data</button>
+                <div class="row">
+                    <button id="btnTrainBaseline" class="btn secondary">Train Baseline (LogReg)</button>
+                    <button id="btnTrainNN" class="btn success">Train Neural Net</button>
+                    <button id="btnEvaluate" class="btn">Evaluate</button>
+                    <button id="btnBusiness" class="btn warn">Business Simulation</button>
+                </div>
+
+                <div class="row">
+                    <button id="btnSaveModel" class="btn gray">Save Model (localStorage)</button>
+                    <button id="btnLoadModel" class="btn gray">Load Model (localStorage)</button>
+                    <button id="btnDownloadModel" class="btn gray">Download Model</button>
+                </div>
+
+                <div class="row" style="margin-top:6px;">
+                    <button id="btnDownloadPrep" class="btn gray">Download Preprocessing JSON</button>
+                    <input type="file" id="uploadConfig" accept=".json" />
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Hyperparameters</h2>
+                <label>
+                    Hidden layers (comma-separated)
+                    <input id="hpLayers" type="text" value="128,64">
+                </label>
+                <label>
+                    Dropout
+                    <input id="hpDropout" type="number" step="0.05" value="0.3">
+                </label>
+                <label>
+                    L2 regularization
+                    <input id="hpL2" type="text" value="1e-4">
+                </label>
+                <label>
+                    Learning rate
+                    <input id="hpLR" type="number" step="0.0001" value="0.001">
+                </label>
+                <label>
+                    Batch size
+                    <input id="hpBatch" type="number" value="512">
+                </label>
+                <label>
+                    Epochs
+                    <input id="hpEpochs" type="number" value="100">
+                </label>
+                <label>
+                    Random seed
+                    <input id="hpSeed" type="number" value="42">
+                </label>
+                <div class="note">Early stopping on val_loss with patience=8.</div>
+            </div>
+
+            <div class="card">
+                <h2>Thresholds</h2>
+                <label>
+                    Manual threshold (0..1)
+                    <input id="thresholdInput" type="number" step="0.01" value="0.5">
+                </label>
+                <div class="row">
+                    <button id="btnSetF1" class="btn">Set F1-optimal (val)</button>
+                    <button id="btnSetYouden" class="btn">Set Youden-optimal (val)</button>
+                </div>
+                <div class="small" id="thresholdNotes">F1-optimal: -, Youden-optimal: -</div>
+            </div>
+
+            <div class="card">
+                <h2>Business Parameters</h2>
+                <label>
+                    Offer cost
+                    <input id="bizOfferCost" type="number" step="0.1" value="20.0">
+                </label>
+                <label>
+                    Save rate (probability offer prevents churn)
+                    <input id="bizSaveRate" type="number" step="0.01" value="0.30">
+                </label>
+                <label>
+                    Retention months (when saved)
+                    <input id="bizMonths" type="number" value="6">
+                </label>
+                <label>
+                    Margin (revenue margin)
+                    <input id="bizMargin" type="number" step="0.05" value="0.4">
+                </label>
+                <label>
+                    Budget K% Min
+                    <input id="bizKMin" type="number" step="1" value="5">
+                </label>
+                <label>
+                    Budget K% Max
+                    <input id="bizKMax" type="number" step="1" value="40">
+                </label>
+                <div class="note">
+                    Annualized savings assumes scaling test profit to full dataset and to 12 months (scaled by retentionMonths).
+                </div>
+            </div>
         </div>
 
-        <!-- EDA Section -->
-        <div class="section">
-            <h3>🔍 2. Exploratory Data Analysis</h3>
-            <button id="btnEDA">Run EDA</button>
-        </div>
+        <div class="section-title">Status / Log</div>
+        <div id="log" class="card"></div>
 
-        <!-- Log Section -->
-        <div class="section">
-            <h3>📋 Status / Log</h3>
-            <div id="log">Ready. Start with Load Data.</div>
+        <div class="grid" style="margin-top:12px;">
+            <div class="card">
+                <h2>Metrics & Results</h2>
+                <div id="metrics" class="metrics">Run Evaluate to populate.</div>
+            </div>
+
+            <div class="card">
+                <h2>Manual Scoring</h2>
+                <div class="small">
+                    Paste a JSON object with CSV-like keys (e.g., {"gender":"Female","SeniorCitizen":"0",...}). Unknown categories are handled as zeros.
+                </div>
+                <textarea id="manualRow" placeholder='{"customerID":"0001","gender":"Female","SeniorCitizen":"0","Partner":"No","Dependents":"No","tenure":"12","PhoneService":"Yes","MultipleLines":"No","InternetService":"DSL","OnlineSecurity":"No","OnlineBackup":"Yes","DeviceProtection":"No","TechSupport":"No","StreamingTV":"No","StreamingMovies":"No","Contract":"Month-to-month","PaperlessBilling":"Yes","PaymentMethod":"Electronic check","MonthlyCharges":"50.2","TotalCharges":"602.4","Churn":"No"}'></textarea>
+                <div class="row">
+                    <button id="btnFormatJson" class="btn gray">Format JSON</button>
+                    <button id="btnScoreRow" class="btn">Score Row with NN</button>
+                    <div id="scoreOut" class="small"></div>
+                </div>
+            </div>
         </div>
     </div>
 
-    <script>
-        // Constants
-        const NUMERIC_FEATURES = ['tenure', 'MonthlyCharges', 'TotalCharges'];
-        const CATEGORICAL_FEATURES = [
-            'gender', 'SeniorCitizen', 'Partner', 'Dependents', 'PhoneService', 'MultipleLines',
-            'InternetService', 'OnlineSecurity', 'OnlineBackup', 'DeviceProtection', 'TechSupport',
-            'StreamingTV', 'StreamingMovies', 'Contract', 'PaperlessBilling', 'PaymentMethod'
-        ];
-        const TARGET_COL = 'Churn';
+    <footer>
+        Tips: Upload CSV, click "Load Data", then "Run EDA", then "Preprocess & Split". Train baseline and NN. Use "Evaluate" to see ROC/PR, calibration, decile lift. "Business Simulation" shows profit curves. Plots open in the tfjs-vis visor (top-right toggle).
+    </footer>
 
-        const STATE = {
-            rawRows: [],
-            cleanedRows: []
-        };
-
-        function appendLog(msg) {
-            const el = document.getElementById('log');
-            const now = new Date().toLocaleTimeString();
-            el.textContent += `[${now}] ${msg}\n`;
-            el.scrollTop = el.scrollHeight;
-            console.log(msg);
-        }
-
-        // Helper function to read file as text
-        function readFileAsText(file) {
-            return new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = e => resolve(e.target.result);
-                reader.onerror = e => reject(new Error('File reading failed'));
-                reader.readAsText(file);
-            });
-        }
-
-        function parseTelcoCsv(csvText) {
-            try {
-                const parsed = Papa.parse(csvText, { 
-                    header: true, 
-                    dynamicTyping: false, 
-                    skipEmptyLines: true,
-                    transform: (value) => value ? value.trim() : value
-                });
-                
-                if (parsed.errors.length > 0) {
-                    console.warn('CSV parsing warnings:', parsed.errors);
-                }
-                
-                let rows = parsed.data.filter(row => Object.keys(row).length > 1);
-                rows = rows.map(r => {
-                    const o = {};
-                    for (const k in r) o[k] = r[k] === '' ? null : r[k];
-                    return o;
-                });
-                
-                return rows;
-            } catch (error) {
-                console.error('CSV parsing error:', error);
-                appendLog(`CSV parsing error: ${error.message}`);
-                return [];
-            }
-        }
-
-        // SIMPLIFIED Cleaning
-        function imputeAndClean(rows) {
-            appendLog('Cleaning data...');
-            const cleaned = rows.map(r => ({ ...r }));
-            
-            for (const r of cleaned) {
-                // Handle Churn column
-                const churnVal = r[TARGET_COL];
-                r._y = (churnVal === 'Yes' || churnVal === '1') ? 1 : 0;
-                
-                // Handle numeric columns
-                r.tenure = Number(r.tenure) || 0;
-                r.MonthlyCharges = Number(r.MonthlyCharges) || 0;
-                r.TotalCharges = Number(r.TotalCharges) || 0;
-                
-                // Handle categorical columns
-                for (const cat of CATEGORICAL_FEATURES) {
-                    if (!r[cat] || r[cat] === '') r[cat] = 'Unknown';
-                }
-            }
-            
-            STATE.cleanedRows = cleaned;
-            return cleaned;
-        }
-
-        // SIMPLIFIED EDA Function with proper data formats
-        async function runEDA(rows) {
-            if (!rows || rows.length === 0) {
-                appendLog('ERROR: No data available for EDA');
-                return;
-            }
-            
-            appendLog('Starting EDA...');
-            tfvis.visor().open();
-            const tab = 'EDA';
-            
-            // Debug first row
-            console.log('First row data:', rows[0]);
-            appendLog(`Sample data - Churn: ${rows[0][TARGET_COL]}, _y: ${rows[0]._y}`);
-
-            // 1. Churn Distribution — PASS ARRAY DIRECTLY
-            const churnYes = rows.filter(r => r._y === 1).length;
-            const churnNo = rows.length - churnYes;
-            
-            const churnData = [
-                { index: 'No Churn', value: churnNo },
-                { index: 'Churn', value: churnYes }
-            ];
-            
-            await tfvis.render.barchart(
-                { name: '1. Churn Distribution', tab }, 
-                churnData, 
-                { 
-                    xLabel: 'Churn Status', 
-                    yLabel: 'Count',
-                    height: 300 
-                }
-            );
-
-            // 2. Numeric Features
-            for (const numFeature of NUMERIC_FEATURES) {
-                const values = rows.map(r => Number(r[numFeature]) || 0).filter(v => !isNaN(v));
-                
-                if (values.length > 0) {
-                    await tfvis.render.histogram(
-                        { name: `2. ${numFeature} Distribution`, tab }, 
-                        values, 
-                        { 
-                            xLabel: numFeature, 
-                            yLabel: 'Frequency', 
-                            height: 300 
-                        }
-                    );
-                }
-            }
-
-            // 3. Categorical Features — Churn Rates — PASS ARRAY DIRECTLY
-            for (const catFeature of CATEGORICAL_FEATURES) {
-                const categories = {};
-                
-                rows.forEach(row => {
-                    const cat = row[catFeature] || 'Unknown';
-                    if (!categories[cat]) {
-                        categories[cat] = { total: 0, churn: 0 };
-                    }
-                    categories[cat].total++;
-                    if (row._y === 1) {
-                        categories[cat].churn++;
-                    }
-                });
-
-                const chartData = Object.entries(categories).map(([category, data]) => ({
-                    index: `${category} (${data.total})`,
-                    value: (data.churn / data.total) * 100
-                })).sort((a, b) => b.value - a.value);
-
-                if (chartData.length > 0) {
-                    await tfvis.render.barchart(
-                        { name: `3. Churn Rate by ${catFeature}`, tab }, 
-                        chartData, 
-                        { 
-                            xLabel: catFeature, 
-                            yLabel: 'Churn Rate %', 
-                            height: 400 
-                        }
-                    );
-                }
-            }
-
-            // 4. Missing Values — PASS ARRAY DIRECTLY
-            const columns = Object.keys(rows[0]).filter(col => !col.startsWith('_'));
-            const missingData = columns.map(col => {
-                const missing = rows.filter(r => 
-                    r[col] === null || r[col] === undefined || r[col] === ''
-                ).length;
-                return {
-                    index: col,
-                    value: (missing / rows.length) * 100
-                };
-            }).filter(item => item.value > 0);
-
-            if (missingData.length > 0) {
-                await tfvis.render.barchart(
-                    { name: '4. Missing Values by Column (%)', tab }, 
-                    missingData, 
-                    { 
-                        xLabel: 'Column', 
-                        yLabel: 'Missing %', 
-                        height: 400 
-                    }
-                );
-            }
-
-            appendLog(`EDA complete! Processed ${rows.length} rows. Overall churn rate: ${((churnYes/rows.length)*100).toFixed(1)}%`);
-        }
-
-        // Load data from user file
-        async function loadDataFromFile() {
-            const input = document.getElementById('datasetFile');
-            const file = input.files && input.files[0];
-            if (!file) {
-                appendLog('Please choose a CSV file.');
-                return [];
-            }
-            
-            appendLog(`Reading file: ${file.name}...`);
-            
-            try {
-                const text = await readFileAsText(file);
-                const rows = parseTelcoCsv(text);
-                
-                if (rows.length === 0) {
-                    appendLog('Error: No data rows found.');
-                    return [];
-                }
-                
-                STATE.rawRows = rows;
-                appendLog(`✓ Loaded ${rows.length} rows, ${Object.keys(rows[0]).length} columns`);
-                appendLog(`Columns: ${Object.keys(rows[0]).join(', ')}`);
-                
-                return rows;
-            } catch (error) {
-                appendLog(`Error: ${error.message}`);
-                return [];
-            }
-        }
-
-        // Button handlers
-        document.getElementById('btnLoad').addEventListener('click', async () => {
-            await loadDataFromFile();
-            if (STATE.rawRows.length) {
-                appendLog('✓ Data loaded. Click "Run EDA" to analyze.');
-            }
-        });
-
-        document.getElementById('btnEDA').addEventListener('click', async () => {
-            if (!STATE.rawRows.length) { 
-                appendLog('Please load data first.'); 
-                return; 
-            }
-            const cleaned = imputeAndClean(STATE.rawRows);
-            await runEDA(cleaned);
-        });
-
-        // Initialize
-        appendLog('Ready. Upload your CSV file and click "Load Data".');
-    </script>
+    <!-- Libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-vis@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+    
+    <!-- App -->
+    <script src="app.js"></script>
 </body>
 </html>
