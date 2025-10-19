@@ -85,9 +85,9 @@
         // Constants
         const NUMERIC_FEATURES = ['tenure', 'MonthlyCharges', 'TotalCharges'];
         const CATEGORICAL_FEATURES = [
-            'gender','SeniorCitizen','Partner','Dependents','PhoneService','MultipleLines',
-            'InternetService','OnlineSecurity','OnlineBackup','DeviceProtection','TechSupport',
-            'StreamingTV','StreamingMovies','Contract','PaperlessBilling','PaymentMethod'
+            'gender', 'SeniorCitizen', 'Partner', 'Dependents', 'PhoneService', 'MultipleLines',
+            'InternetService', 'OnlineSecurity', 'OnlineBackup', 'DeviceProtection', 'TechSupport',
+            'StreamingTV', 'StreamingMovies', 'Contract', 'PaperlessBilling', 'PaymentMethod'
         ];
         const TARGET_COL = 'Churn';
 
@@ -182,7 +182,7 @@
             console.log('First row data:', rows[0]);
             appendLog(`Sample data - Churn: ${rows[0][TARGET_COL]}, _y: ${rows[0]._y}`);
 
-            // 1. Churn Distribution - CORRECT FORMAT
+            // 1. Churn Distribution — PASS ARRAY DIRECTLY
             const churnYes = rows.filter(r => r._y === 1).length;
             const churnNo = rows.length - churnYes;
             
@@ -193,7 +193,7 @@
             
             await tfvis.render.barchart(
                 { name: '1. Churn Distribution', tab }, 
-                { values: churnData }, 
+                churnData, 
                 { 
                     xLabel: 'Churn Status', 
                     yLabel: 'Count',
@@ -201,7 +201,7 @@
                 }
             );
 
-            // 2. Numeric Features - CORRECT FORMAT
+            // 2. Numeric Features
             for (const numFeature of NUMERIC_FEATURES) {
                 const values = rows.map(r => Number(r[numFeature]) || 0).filter(v => !isNaN(v));
                 
@@ -218,11 +218,10 @@
                 }
             }
 
-            // 3. Categorical Features - Churn Rates - CORRECT FORMAT
+            // 3. Categorical Features — Churn Rates — PASS ARRAY DIRECTLY
             for (const catFeature of CATEGORICAL_FEATURES) {
                 const categories = {};
                 
-                // Count by category
                 rows.forEach(row => {
                     const cat = row[catFeature] || 'Unknown';
                     if (!categories[cat]) {
@@ -234,7 +233,6 @@
                     }
                 });
 
-                // Convert to proper format
                 const chartData = Object.entries(categories).map(([category, data]) => ({
                     index: `${category} (${data.total})`,
                     value: (data.churn / data.total) * 100
@@ -243,7 +241,7 @@
                 if (chartData.length > 0) {
                     await tfvis.render.barchart(
                         { name: `3. Churn Rate by ${catFeature}`, tab }, 
-                        { values: chartData }, 
+                        chartData, 
                         { 
                             xLabel: catFeature, 
                             yLabel: 'Churn Rate %', 
@@ -253,7 +251,7 @@
                 }
             }
 
-            // 4. Missing Values - CORRECT FORMAT
+            // 4. Missing Values — PASS ARRAY DIRECTLY
             const columns = Object.keys(rows[0]).filter(col => !col.startsWith('_'));
             const missingData = columns.map(col => {
                 const missing = rows.filter(r => 
@@ -268,7 +266,7 @@
             if (missingData.length > 0) {
                 await tfvis.render.barchart(
                     { name: '4. Missing Values by Column (%)', tab }, 
-                    { values: missingData }, 
+                    missingData, 
                     { 
                         xLabel: 'Column', 
                         yLabel: 'Missing %', 
@@ -330,7 +328,6 @@
 
         // Initialize
         appendLog('Ready. Upload your CSV file and click "Load Data".');
-
     </script>
 </body>
 </html>
