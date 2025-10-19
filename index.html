@@ -219,55 +219,10 @@
             <button id="btnBusiness">Run Business Simulation</button>
         </div>
 
-        <!-- Model Management Section -->
-        <div class="section">
-            <h3>💾 7. Model Management</h3>
-            <button id="btnSaveModel">Save Model to Browser</button>
-            <button id="btnLoadModel">Load Model from Browser</button>
-            <button id="btnDownloadModel">Download Model Files</button>
-            <button id="btnDownloadPrep">Download Preprocessing Config</button>
-            <div class="file-input">
-                <label for="uploadConfig">Upload Preprocessing Config:</label>
-                <input type="file" id="uploadConfig" accept=".json" />
-            </div>
-        </div>
-
-        <!-- Manual Scoring Section -->
-        <div class="section">
-            <h3>🎯 8. Manual Scoring</h3>
-            <textarea id="manualRow" rows="6" cols="80" placeholder='Paste customer data as JSON, e.g.:
-{
-  "customerID": "1234-ABCD",
-  "gender": "Male",
-  "SeniorCitizen": 0,
-  "Partner": "Yes",
-  "Dependents": "No",
-  "tenure": 12,
-  "PhoneService": "Yes",
-  "MultipleLines": "No",
-  "InternetService": "DSL",
-  "OnlineSecurity": "No",
-  "OnlineBackup": "Yes",
-  "DeviceProtection": "No",
-  "TechSupport": "No",
-  "StreamingTV": "No",
-  "StreamingMovies": "No",
-  "Contract": "Month-to-month",
-  "PaperlessBilling": "Yes",
-  "PaymentMethod": "Electronic check",
-  "MonthlyCharges": 45.50,
-  "TotalCharges": 546.00,
-  "Churn": "No"
-}'></textarea>
-            <br>
-            <button id="btnScoreRow">Score Customer</button>
-            <div id="scoreOut" class="metrics"></div>
-        </div>
-
         <!-- Log Section -->
         <div class="section">
             <h3>📋 Status / Log</h3>
-            <div id="log">[1:42:18 PM] Ready. Start with Load Data.</div>
+            <div id="log">Ready. Start with Load Data.</div>
         </div>
     </div>
 
@@ -344,109 +299,196 @@
             }
         }
 
-        // Cleaning and imputation
+        // IMPROVED Cleaning and imputation
         function imputeAndClean(rows) {
-            appendLog('Cleaning data: coercing numerics, imputing TotalCharges median, mapping target...');
+            appendLog('Cleaning data...');
             const cleaned = rows.map(r => ({ ...r }));
-            let totalChargesVals = [];
-            let totalNaNsIntroduced = 0;
             
+            // Initialize target variable
             for (const r of cleaned) {
-                r.tenure = r.tenure != null ? Number(r.tenure) : null;
-                r.MonthlyCharges = r.MonthlyCharges != null ? Number(r.MonthlyCharges) : null;
-                const tc = r.TotalCharges != null ? Number(r.TotalCharges) : NaN;
-                if (isNaN(tc)) totalNaNsIntroduced++;
-                else totalChargesVals.push(tc);
+                // Handle Churn column - check different possible values
+                const churnVal = r[TARGET_COL];
+                if (churnVal === 'Yes' || churnVal === '1' || churnVal === 1 || churnVal === true) {
+                    r._y = 1;
+                } else if (churnVal === 'No' || churnVal === '0' || churnVal === 0 || churnVal === false) {
+                    r._y = 0;
+                } else {
+                    r._y = 0; // Default to No if unknown
+                }
             }
             
-            const median = (() => {
-                const a = totalChargesVals.slice().sort((a, b) => a - b);
-                const mid = Math.floor(a.length / 2);
-                return a.length % 2 ? a[mid] : (a[mid - 1] + a[mid]) / 2;
-            })();
-            
+            // Handle numeric columns
             for (const r of cleaned) {
-                let tc = Number(r.TotalCharges);
-                if (isNaN(tc)) tc = median;
-                r.TotalCharges = tc;
-                if (r.MonthlyCharges == null || isNaN(r.MonthlyCharges)) r.MonthlyCharges = 0;
-                if (r.tenure == null || isNaN(r.tenure)) r.tenure = 0;
-                r._y = r[TARGET_COL] === 'Yes' ? 1 : 0;
+                // Tenure
+                r.tenure = r.tenure != null ? Number(r.tenure) : 0;
+                if (isNaN(r.tenure)) r.tenure = 0;
+                
+                // MonthlyCharges
+                r.MonthlyCharges = r.MonthlyCharges != null ? Number(r.MonthlyCharges) : 0;
+                if (isNaN(r.MonthlyCharges)) r.MonthlyCharges = 0;
+                
+                // TotalCharges - handle empty strings and null
+                if (r.TotalCharges === '' || r.TotalCharges === null || r.TotalCharges === undefined) {
+                    r.TotalCharges = 0;
+                } else {
+                    r.TotalCharges = Number(r.TotalCharges);
+                    if (isNaN(r.TotalCharges)) r.TotalCharges = 0;
+                }
             }
             
-            appendLog(`TotalCharges NaNs introduced: ${totalNaNsIntroduced}. Imputed with median=${median.toFixed(2)}.`);
+            // Handle categorical columns - ensure they are strings
+            for (const r of cleaned) {
+                for (const cat of CATEGORICAL_FEATURES) {
+                    if (r[cat] === null || r[cat] === undefined || r[cat] === '') {
+                        r[cat] = 'Unknown';
+                    } else {
+                        r[cat] = String(r[cat]);
+                    }
+                }
+            }
+            
+            appendLog(`Cleaning complete. Processed ${cleaned.length} rows.`);
             STATE.cleanedRows = cleaned;
             return cleaned;
         }
 
-        // EDA Function - ПОЛНАЯ РЕАЛИЗАЦИЯ
+        // IMPROVED EDA Function
         async function runEDA(rows) {
+            if (!rows || rows.length === 0) {
+                appendLog('ERROR: No data available for EDA');
+                return;
+            }
+            
             appendLog('Starting EDA...');
+            
+            // Open the visor
             tfvis.visor().open();
             const tab = 'EDA';
             
-            // Churn Distribution
+            // Debug: log first row to see structure
+            console.log('First row:', rows[0]);
+            appendLog(`First row sample: ${JSON.stringify(rows[0])}`);
+            
+            // 1. Churn Distribution - FIXED
             const churnYes = rows.reduce((a, r) => a + (r._y === 1 ? 1 : 0), 0);
-            await tfvis.render.barchart(
-                { name: 'EDA: Churn Distribution', tab }, 
-                {
-                    values: [
-                        { x: 'No', y: rows.length - churnYes }, 
-                        { x: 'Yes', y: churnYes }
-                    ],
-                    series: ['Count']
-                }, 
-                { xLabel: 'Churn', yLabel: 'Count' }
-            );
-
-            // Missing Values
-            const cols = Object.keys(rows[0] || {});
-            const miss = cols.map(c => {
-                const m = rows.reduce((a, r) => a + ((r[c] === null || r[c] === undefined || r[c] === '') ? 1 : 0), 0);
-                return { x: c, y: m / rows.length };
-            });
+            const churnNo = rows.length - churnYes;
+            
+            appendLog(`Churn distribution: Yes=${churnYes}, No=${churnNo}`);
             
             await tfvis.render.barchart(
-                { name: 'EDA: Missing Values', tab }, 
-                { values: miss, series: ['Missing%'] }, 
-                { xLabel: 'Column', yLabel: 'Fraction Missing', height: 400 }
+                { name: '1. Churn Distribution', tab }, 
+                {
+                    values: [
+                        { label: 'No Churn', value: churnNo }, 
+                        { label: 'Churn', value: churnYes }
+                    ]
+                }, 
+                { 
+                    xLabel: 'Churn Status', 
+                    yLabel: 'Count',
+                    height: 300 
+                }
             );
 
-            // Numeric Features Histograms
+            // 2. Missing Values - FIXED
+            const cols = Object.keys(rows[0]).filter(col => !col.startsWith('_'));
+            const missingData = cols.map(col => {
+                const missingCount = rows.reduce((count, row) => {
+                    return count + (row[col] === null || row[col] === undefined || row[col] === '' ? 1 : 0);
+                }, 0);
+                return {
+                    label: col,
+                    value: (missingCount / rows.length) * 100
+                };
+            }).filter(item => item.value > 0); // Only show columns with missing values
+
+            if (missingData.length > 0) {
+                await tfvis.render.barchart(
+                    { name: '2. Missing Values (%)', tab }, 
+                    { values: missingData }, 
+                    { 
+                        xLabel: 'Column', 
+                        yLabel: 'Missing %',
+                        height: 400 
+                    }
+                );
+            } else {
+                appendLog('No missing values found in dataset.');
+            }
+
+            // 3. Numeric Features Histograms - FIXED
             for (const n of NUMERIC_FEATURES) {
-                const vals = rows.map(r => Number(r[n]) || 0).filter(v => !isNaN(v));
+                const vals = rows.map(r => {
+                    const val = Number(r[n]);
+                    return isNaN(val) ? 0 : val;
+                }).filter(v => v !== null && v !== undefined);
+                
                 if (vals.length > 0) {
                     await tfvis.render.histogram(
-                        { name: `EDA: ${n} Distribution`, tab }, 
+                        { name: `3. ${n} Distribution`, tab }, 
                         vals, 
-                        { xLabel: n, yLabel: 'Frequency', height: 300 }
+                        { 
+                            xLabel: n, 
+                            yLabel: 'Frequency', 
+                            height: 300 
+                        }
+                    );
+                    
+                    // Log stats for debugging
+                    const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+                    appendLog(`${n}: avg=${avg.toFixed(2)}, min=${Math.min(...vals)}, max=${Math.max(...vals)}`);
+                }
+            }
+
+            // 4. Categorical Features - Churn Rates - FIXED
+            for (const c of CATEGORICAL_FEATURES) {
+                const categoryData = {};
+                
+                // Aggregate data by category
+                rows.forEach(row => {
+                    const category = row[c] || 'Unknown';
+                    if (!categoryData[category]) {
+                        categoryData[category] = { total: 0, churn: 0 };
+                    }
+                    categoryData[category].total++;
+                    if (row._y === 1) {
+                        categoryData[category].churn++;
+                    }
+                });
+
+                // Convert to chart format
+                const chartData = Object.keys(categoryData).map(category => {
+                    const data = categoryData[category];
+                    const churnRate = (data.churn / data.total) * 100;
+                    return {
+                        label: `${category} (n=${data.total})`,
+                        value: churnRate
+                    };
+                });
+
+                // Sort by churn rate descending
+                chartData.sort((a, b) => b.value - a.value);
+
+                if (chartData.length > 0) {
+                    await tfvis.render.barchart(
+                        { name: `4. Churn Rate by ${c}`, tab }, 
+                        { values: chartData }, 
+                        { 
+                            xLabel: c, 
+                            yLabel: 'Churn Rate %', 
+                            height: 400 
+                        }
                     );
                 }
             }
-
-            // Categorical Features - Churn Rates
-            for (const c of CATEGORICAL_FEATURES) {
-                const agg = {};
-                for (const r of rows) {
-                    const v = r[c] == null ? 'Unknown' : String(r[c]);
-                    if (!agg[v]) agg[v] = { cnt: 0, pos: 0 };
-                    agg[v].cnt++;
-                    agg[v].pos += (r._y === 1 ? 1 : 0);
-                }
-                
-                const bars = Object.keys(agg).map(k => ({ 
-                    x: k, 
-                    y: agg[k].pos / (agg[k].cnt || 1) 
-                }));
-                
-                await tfvis.render.barchart(
-                    { name: `EDA: Churn Rate by ${c}`, tab }, 
-                    { values: bars, series: ['Churn Rate'] }, 
-                    { xLabel: c, yLabel: 'Churn Rate', height: 350 }
-                );
-            }
             
-            appendLog(`EDA complete. Dataset: ${rows.length} rows, Churn rate: ${(100 * churnYes / rows.length).toFixed(1)}%.`);
+            // 5. Additional insights
+            const totalChurnRate = (churnYes / rows.length) * 100;
+            appendLog(`EDA complete. Dataset: ${rows.length} rows, Overall churn rate: ${totalChurnRate.toFixed(1)}%`);
+            
+            // Show data summary
+            appendLog(`Numeric columns: ${NUMERIC_FEATURES.join(', ')}`);
+            appendLog(`Categorical columns: ${CATEGORICAL_FEATURES.join(', ')}`);
         }
 
         // Load data from user file
@@ -471,6 +513,10 @@
                 
                 STATE.rawRows = rows;
                 appendLog(`Loaded ${rows.length} rows, ${Object.keys(rows[0]).length} columns from file.`);
+                
+                // Debug: show column names
+                appendLog(`Columns: ${Object.keys(rows[0]).join(', ')}`);
+                
                 return rows;
             } catch (error) {
                 appendLog(`Error loading file: ${error.message}`);
