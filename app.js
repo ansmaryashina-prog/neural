@@ -1,6 +1,5 @@
-/* Telco Churn EDA + NN + Business Simulator - Client-only (Upload CSV)
-Uses: TensorFlow.js, tfjs-vis, PapaParse
-*/
+// Telco Churn EDA + NN + Business Simulator - Client-only (Upload CSV)
+// Uses: TensorFlow.js, tfjs-vis, PapaParse
 
 const NUMERIC_FEATURES = ['tenure', 'MonthlyCharges', 'TotalCharges'];
 const CATEGORICAL_FEATURES = [
@@ -37,7 +36,7 @@ function appendLog(msg) {
     console.log(msg);
 }
 
-// Seeded RNG
+// RNG
 function mulberry32(a) {
     return function() {
         let t = a += 0x6D2B79F5;
@@ -69,7 +68,7 @@ function parseTelcoCsv(csvText) {
     return rows;
 }
 
-// Load data from user file
+// Load data
 async function loadDataFromFile() {
     try {
         const input = document.getElementById('datasetFile');
@@ -94,7 +93,7 @@ async function loadDataFromFile() {
     }
 }
 
-// Cleaning and imputation
+// Cleaning
 function imputeAndClean(rows) {
     appendLog('Cleaning data: coercing numerics, imputing TotalCharges median, mapping target...');
     const cleaned = rows.map(r => ({ ...r }));
@@ -129,7 +128,7 @@ function imputeAndClean(rows) {
     return cleaned;
 }
 
-// Stratified split
+// Split
 function stratifiedSplit(rows, seed, fractions = { train: 0.6, val: 0.2, test: 0.2 }) {
     const idxPos = [], idxNeg = [];
     rows.forEach((r, i) => (r._y === 1 ? idxPos : idxNeg).push(i));
@@ -165,11 +164,7 @@ function stratifiedSplit(rows, seed, fractions = { train: 0.6, val: 0.2, test: 0
 
     const split = {
         trainIdxs, valIdxs, testIdxs,
-        stats: {
-            train: stats(trainIdxs),
-            val: stats(valIdxs),
-            test: stats(testIdxs)
-        }
+        stats: { train: stats(trainIdxs), val: stats(valIdxs), test: stats(testIdxs) }
     };
 
     appendLog(`Split sizes: train=${split.stats.train.size} (churn=${(100 * split.stats.train.churnRate).toFixed(1)}%), val=${split.stats.val.size} (${(100 * split.stats.val.churnRate).toFixed(1)}%), test=${split.stats.test.size} (${(100 * split.stats.test.churnRate).toFixed(1)}%)`);
@@ -177,7 +172,7 @@ function stratifiedSplit(rows, seed, fractions = { train: 0.6, val: 0.2, test: 0
     return split;
 }
 
-// Build preprocessing maps from train
+// Preprocessing maps
 function buildPreprocessingMaps(trainRows) {
     const categoryMaps = {};
     for (const c of CATEGORICAL_FEATURES) {
@@ -209,7 +204,7 @@ function buildPreprocessingMaps(trainRows) {
     return maps;
 }
 
-// Transform rows
+// Transform
 function transformRows(rows, maps) {
     const n = rows.length;
     const d = maps.featureOrder.length;
@@ -250,7 +245,7 @@ function transformRows(rows, maps) {
     return { X, y, meta, nRows: n, nCols: d };
 }
 
-// Models (builders do not compile)
+// Models (builders)
 function buildLogisticModel(inputDim, l2) {
     const model = tf.sequential();
     model.add(tf.layers.dense({
@@ -280,17 +275,19 @@ function buildMLPModel(inputDim, layerSizes, dropout, l2) {
     return model;
 }
 
-// Weighted BCE to replace unsupported sampleWeight in browser
+// Weighted BCE (avoid clip Tensor min/max issue)
 function weightedBinaryCrossentropy(posWeight = 1) {
+    const eps = 1e-7; // numeric, not Tensor
+    const wPosNum = Math.max(1e-6, posWeight);
     return (yTrue, yPred) => tf.tidy(() => {
-        const eps = tf.scalar(1e-7);
-        const one = tf.scalar(1);
-        const y = yTrue;
-        const p = yPred.clipByValue(eps, one.sub(eps));
-        const wPos = tf.scalar(Math.max(1e-6, posWeight));
-        const termPos = y.mul(tf.log(p)).mul(wPos);
-        const termNeg = one.sub(y).mul(tf.log(one.sub(p)));
-        const loss = tf.neg(tf.mean(termPos.add(termNeg)));
+        const y = yTrue.asType('float32');
+        const p = yPred.asType('float32').clipByValue(eps, 1 - eps); // numeric bounds
+        const one = tf.scalar(1, 'float32');
+        const wPos = tf.scalar(wPosNum, 'float32');
+
+        const termPos = y.mul(p.log()).mul(wPos);
+        const termNeg = one.sub(y).mul(one.sub(p).log());
+        const loss = tf.neg(termPos.add(termNeg).mean());
         return loss;
     });
 }
@@ -336,7 +333,6 @@ async function fitModel(model, XTrain, yTrain, XVal, yVal, sampleWeights, epochs
                 tfvis.show.fitCallbacks(historyContainer, ['loss', 'val_loss', 'binaryAccuracy', 'val_binaryAccuracy'], { callbacks: ['onEpochEnd'] }),
                 tf.callbacks.earlyStopping({ monitor: 'val_loss', patience: 8, minDelta: 1e-4 })
             ]
-            // sampleWeight intentionally not used (browser TF.js limitation).
         });
     } finally {
         xTrainT.dispose();
@@ -369,17 +365,19 @@ function rocCurve(probs, labels) {
     for (const p of pairs) (p[1] === 1 ? P++ : N++);
     let tp = 0, fp = 0;
     const tpr = [0], fpr = [0];
-    let lastProb = Infinity;
+    let last = Infinity;
     for (let i = 0; i < pairs.length; i++) {
-        const [prob, y] = pairs[i];
-        if (prob !== lastProb) {
+        const [pr, y] = pairs[i];
+        if (pr !== last) {
             tpr.push(tp / (P || 1));
             fpr.push(fp / (N || 1));
-            lastProb = prob;
+            last = pr;
         }
-        if (y === 1) tp++; else fp++;
+        if (y === 1) tp++;
+        else fp++;
     }
-    tpr.push(1); fpr.push(1);
+    tpr.push(1);
+    fpr.push(1);
     return { fpr, tpr };
 }
 
@@ -389,17 +387,18 @@ function prCurve(probs, labels) {
     pairs.sort((a, b) => b[0] - a[0]);
     let tp = 0, fp = 0, P = labels.reduce((a, b) => a + b, 0);
     const precision = [], recall = [];
-    let lastProb = Infinity;
+    let last = Infinity;
     for (let i = 0; i < pairs.length; i++) {
-        const [prob, y] = pairs[i];
-        if (prob !== lastProb) {
+        const [pr, y] = pairs[i];
+        if (pr !== last) {
             const prec = tp + fp === 0 ? 1 : tp / (tp + fp);
             const rec = P === 0 ? 0 : tp / P;
             precision.push(prec);
             recall.push(rec);
-            lastProb = prob;
+            last = pr;
         }
-        if (y === 1) tp++; else fp++;
+        if (y === 1) tp++;
+        else fp++;
     }
     precision.push(tp + fp === 0 ? 1 : tp / (tp + fp));
     recall.push(P === 0 ? 0 : tp / P);
@@ -470,15 +469,11 @@ function thresholdSearchYouden(probs, labels) {
 
 function decileLift(probs, labels) {
     const n = probs.length;
-    const idx = Array.from({ length: n }, (_, i) => i);
-    idx.sort((a, b) => probs[b] - probs[a]);
-
+    const idx = Array.from({ length: n }, (_, i) => i).sort((a, b) => probs[b] - probs[a]);
     const decileSize = Math.max(1, Math.floor(n / 10));
-    const rates = [];
-    const cumCapture = [];
+    const rates = [], cumCapture = [];
     const totalPos = labels.reduce((a, b) => a + b, 0);
     let cumPos = 0;
-
     for (let d = 0; d < 10; d++) {
         const start = d * decileSize;
         const end = d === 9 ? n : start + decileSize;
@@ -489,7 +484,6 @@ function decileLift(probs, labels) {
         cumPos += pos;
         cumCapture.push({ x: `D${d + 1}`, y: totalPos === 0 ? 0 : cumPos / totalPos });
     }
-
     return { rates, cumCapture };
 }
 
@@ -514,14 +508,12 @@ async function runEDA(rows) {
     const tab = 'EDA';
     const churnYes = rows.reduce((a, r) => a + (r._y === 1 ? 1 : 0), 0);
 
-    // Churn distribution
     const churnData = [
         { index: 'No', value: rows.length - churnYes },
         { index: 'Yes', value: churnYes }
     ];
     await tfvis.render.barchart({ name: 'EDA: Churn Distribution', tab }, churnData, { xLabel: 'Churn', yLabel: 'Count' });
 
-    // Missingness
     const cols = Object.keys(rows[0] || {});
     const miss = cols.map(c => {
         const m = rows.reduce((a, r) => a + ((r[c] === null || r[c] === undefined || r[c] === '') ? 1 : 0), 0);
@@ -529,13 +521,11 @@ async function runEDA(rows) {
     });
     await tfvis.render.barchart({ name: 'EDA: Missingness', tab }, miss, { xLabel: 'Column', yLabel: 'Fraction Missing', height: 300 });
 
-    // Numeric histograms
     for (const n of NUMERIC_FEATURES) {
         const vals = rows.map(r => Number(r[n]) || 0);
         await tfvis.render.histogram({ name: `EDA: ${n} histogram`, tab }, vals, { xLabel: n, yLabel: 'Freq', height: 200 });
     }
 
-    // Categorical churn rate
     for (const c of CATEGORICAL_FEATURES) {
         const agg = {};
         for (const r of rows) {
@@ -551,124 +541,7 @@ async function runEDA(rows) {
     appendLog(`EDA complete. Churn rate overall: ${(100 * churnYes / rows.length).toFixed(1)}%.`);
 }
 
-// Business helpers
-function expectedValuePerCustomer(p, monthlyCharge, params) {
-    const { offerCost, saveRate, retentionMonths, margin } = params;
-    const m = isFinite(monthlyCharge) ? monthlyCharge : 0;
-    return (p * saveRate * margin * m * retentionMonths) - offerCost;
-}
-
-function businessProfitThresholdSweep(probs, labels, monthly, params) {
-    const results = [];
-    for (let t = 0.1; t <= 0.9; t += 0.01) {
-        let targeted = 0, profit = 0, tp = 0, pos = labels.reduce((a, b) => a + b, 0);
-        for (let i = 0; i < probs.length; i++) {
-            if (probs[i] >= t) {
-                targeted++;
-                profit += expectedValuePerCustomer(probs[i], monthly[i], params);
-                if (labels[i] === 1) tp++;
-            }
-        }
-        const precision = targeted === 0 ? 0 : tp / targeted;
-        const recall = pos === 0 ? 0 : tp / pos;
-        results.push({ t: +t.toFixed(2), targeted, profit, precision, recall });
-    }
-    const best = results.reduce((a, b) => b.profit > a.profit ? b : a, { profit: -Infinity });
-    return { results, best };
-}
-
-function businessProfitTopK(probs, labels, monthly, params, kMin = 5, kMax = 40) {
-    const n = probs.length;
-    const idx = Array.from({ length: n }, (_, i) => i).sort((a, b) => probs[b] - probs[a]);
-    const results = [];
-    for (let k = kMin; k <= kMax; k += 1) {
-        const m = Math.floor(n * (k / 100));
-        let profit = 0, tp = 0, targeted = m;
-        let pos = labels.reduce((a, b) => a + b, 0);
-        for (let i = 0; i < m; i++) {
-            const j = idx[i];
-            profit += expectedValuePerCustomer(probs[j], monthly[j], params);
-            if (labels[j] === 1) tp++;
-        }
-        const precision = targeted === 0 ? 0 : tp / targeted;
-        const recall = pos === 0 ? 0 : tp / pos;
-        results.push({ k, targeted, profit, precision, recall });
-    }
-    const best = results.reduce((a, b) => b.profit > a.profit ? b : a, { profit: -Infinity });
-    return { results, best };
-}
-
-// Permutation importance
-async function permutationImportance(valRows, maps, model, maxN = 2000) {
-    const n = Math.min(maxN, valRows.length);
-    const sample = valRows.slice(0, n);
-    const base = transformRows(sample, maps);
-    const baseProbs = predictProba(model, base.X);
-    const basePR = prCurve(baseProbs, base.y);
-    const basePRAUC = aucFromCurve(basePR.recall, basePR.precision);
-
-    const feats = [...NUMERIC_FEATURES, ...CATEGORICAL_FEATURES];
-    const importance = [];
-
-    for (const f of feats) {
-        const perm = sample.map(r => ({ ...r }));
-        const vals = perm.map(r => r[f]);
-        const rng = mulberry32(STATE.seed + 123);
-        for (let i = vals.length - 1; i > 0; i--) {
-            const j = Math.floor(rng() * (i + 1));
-            const tmp = vals[i]; vals[i] = vals[j]; vals[j] = tmp;
-        }
-        for (let i = 0; i < perm.length; i++) perm[i][f] = vals[i];
-
-        const t = transformRows(perm, maps);
-        const probs = predictProba(model, t.X);
-        const pr = prCurve(probs, t.y);
-        const auc = aucFromCurve(pr.recall, pr.precision);
-        importance.push({ feature: f, delta: basePRAUC - auc });
-    }
-
-    importance.sort((a, b) => b.delta - a.delta);
-    return { importance, basePRAUC };
-}
-
-// Segment metrics
-function segmentMetrics(rows, probs, labels) {
-    const segments = {
-        Contract: Array.from(new Set(rows.map(r => r.Contract || 'Unknown'))),
-        InternetService: Array.from(new Set(rows.map(r => r.InternetService || 'Unknown'))),
-        SeniorCitizen: Array.from(new Set(rows.map(r => String(r.SeniorCitizen || '0'))))
-    };
-    const results = [];
-
-    function segmentAUC(subProbs, subLabels) {
-        const roc = rocCurve(subProbs, subLabels);
-        const pairs = roc.fpr.map((x, i) => [x, roc.tpr[i]]).sort((a, b) => a[0] - b[0]);
-        return aucFromCurve(pairs.map(p => p[0]), pairs.map(p => p[1]));
-    }
-
-    function segmentECE(subProbs, subLabels) {
-        return calibrationBins(subProbs, subLabels, 10).ece;
-    }
-
-    for (const [key, values] of Object.entries(segments)) {
-        for (const v of values) {
-            const idx = rows.map((r, i) => ({ match: String(r[key] || 'Unknown') === String(v), i }))
-                .filter(o => o.match).map(o => o.i);
-            const subProbs = idx.map(i => probs[i]);
-            const subLabels = idx.map(i => labels[i]);
-            if (subProbs.length < 10) continue;
-            results.push({
-                segment: `${key}=${v}`,
-                size: subProbs.length,
-                auc: segmentAUC(subProbs, subLabels),
-                ece: segmentECE(subProbs, subLabels)
-            });
-        }
-    }
-    return results.sort((a, b) => a.segment.localeCompare(b.segment));
-}
-
-// Rendering
+// Calibration/plots
 async function renderCurves(name, probs, labels, tab = 'Evaluation') {
     const roc = rocCurve(probs, labels);
     const rocPairs = roc.fpr.map((x, i) => ({ x, y: roc.tpr[i] })).sort((a, b) => a.x - b.x);
@@ -724,41 +597,7 @@ function renderMetricsTable(containerId, metrics) {
     `;
 }
 
-// UI helpers
-function getHyperparams() {
-    const layerSizes = (document.getElementById('hpLayers').value.trim() || '')
-        .split(',')
-        .map(s => parseInt(s.trim(), 10))
-        .filter(n => !isNaN(n) && n > 0);
-    const dropout = parseFloat(document.getElementById('hpDropout').value);
-    const l2 = parseFloat(document.getElementById('hpL2').value);
-    const lr = parseFloat(document.getElementById('hpLR').value);
-    const batch = parseInt(document.getElementById('hpBatch').value, 10);
-    const epochs = parseInt(document.getElementById('hpEpochs').value, 10);
-    const seed = parseInt(document.getElementById('hpSeed').value, 10);
-    STATE.seed = seed;
-    return { layerSizes, dropout, l2, lr, batch, epochs, seed };
-}
-
-function getBusinessParams() {
-    const offerCost = parseFloat(document.getElementById('bizOfferCost').value);
-    const saveRate = parseFloat(document.getElementById('bizSaveRate').value);
-    const retentionMonths = parseFloat(document.getElementById('bizMonths').value);
-    const margin = parseFloat(document.getElementById('bizMargin').value);
-    const kMin = parseInt(document.getElementById('bizKMin').value, 10);
-    const kMax = parseInt(document.getElementById('bizKMax').value, 10);
-    STATE.business = { offerCost, saveRate, retentionMonths, margin, kMin, kMax };
-    return STATE.business;
-}
-
-function updateThresholdNotes() {
-    const noteEl = document.getElementById('thresholdNotes');
-    const f1 = STATE.thresholds.f1 != null ? STATE.thresholds.f1 : '-';
-    const youden = STATE.thresholds.youden != null ? STATE.thresholds.youden : '-';
-    noteEl.textContent = `F1-optimal: ${f1}, Youden-optimal: ${youden}`;
-}
-
-// Explainability plots
+// Explainability helpers
 async function dependencePlots(testRows, probs) {
     const tab = 'Explainability';
     const binsTenure = binDependence(testRows, probs, 'tenure', 10);
@@ -801,9 +640,42 @@ function categoryDependence(rows, probs, col) {
     return Object.keys(agg).map(k => ({ index: k, value: agg[k].sum / (agg[k].cnt || 1) }));
 }
 
+// UI
+function getHyperparams() {
+    const layerSizes = (document.getElementById('hpLayers').value.trim() || '')
+        .split(',')
+        .map(s => parseInt(s.trim(), 10))
+        .filter(n => !isNaN(n) && n > 0);
+    const dropout = parseFloat(document.getElementById('hpDropout').value);
+    const l2 = parseFloat(document.getElementById('hpL2').value);
+    const lr = parseFloat(document.getElementById('hpLR').value);
+    const batch = parseInt(document.getElementById('hpBatch').value, 10);
+    const epochs = parseInt(document.getElementById('hpEpochs').value, 10);
+    const seed = parseInt(document.getElementById('hpSeed').value, 10);
+    STATE.seed = seed;
+    return { layerSizes, dropout, l2, lr, batch, epochs, seed };
+}
+
+function getBusinessParams() {
+    const offerCost = parseFloat(document.getElementById('bizOfferCost').value);
+    const saveRate = parseFloat(document.getElementById('bizSaveRate').value);
+    const retentionMonths = parseFloat(document.getElementById('bizMonths').value);
+    const margin = parseFloat(document.getElementById('bizMargin').value);
+    const kMin = parseInt(document.getElementById('bizKMin').value, 10);
+    const kMax = parseInt(document.getElementById('bizKMax').value, 10);
+    STATE.business = { offerCost, saveRate, retentionMonths, margin, kMin, kMax };
+    return STATE.business;
+}
+
+function updateThresholdNotes() {
+    const noteEl = document.getElementById('thresholdNotes');
+    const f1 = STATE.thresholds.f1 != null ? STATE.thresholds.f1 : '-';
+    const youden = STATE.thresholds.youden != null ? STATE.thresholds.youden : '-';
+    noteEl.textContent = `F1-optimal: ${f1}, Youden-optimal: ${youden}`;
+}
+
 // Main
 async function main() {
-    // Diagnostics: file chosen + Load button
     document.getElementById('datasetFile').addEventListener('change', (e) => {
         const f = e.target.files && e.target.files[0];
         if (f) appendLog(`Selected file: ${f.name} (${Math.round(f.size / 1024)} KB)`);
@@ -952,7 +824,7 @@ async function main() {
         document.getElementById('thresholdInput').value = STATE.thresholds.f1;
         appendLog(`Manual threshold set to F1-optimal: ${STATE.thresholds.f1}`);
     });
-    
+
     document.getElementById('btnSetYouden').addEventListener('click', () => {
         if (STATE.thresholds.youden == null) { appendLog('Train NN to compute Youden-optimal threshold.'); return; }
         document.getElementById('thresholdInput').value = STATE.thresholds.youden;
@@ -966,7 +838,7 @@ async function main() {
         localStorage.setItem('telco-prep', JSON.stringify(prep));
         appendLog('Saved model and preprocessing config to localStorage.');
     });
-    
+
     document.getElementById('btnLoadModel').addEventListener('click', async () => {
         try {
             STATE.models.mlp = await tf.loadLayersModel('localstorage://telco-nn');
@@ -982,7 +854,7 @@ async function main() {
             appendLog('Load model failed: ' + e.message);
         }
     });
-    
+
     document.getElementById('btnDownloadModel').addEventListener('click', async () => {
         if (!STATE.models.mlp) { appendLog('No NN model to download.'); return; }
         await STATE.models.mlp.save('downloads://telco-nn');
@@ -999,7 +871,7 @@ async function main() {
         a.click();
         appendLog('Downloaded preprocessing JSON.');
     });
-    
+
     document.getElementById('uploadConfig').addEventListener('change', async (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -1009,7 +881,6 @@ async function main() {
         appendLog('Applied uploaded preprocessing config.');
     });
 
-    // Format JSON button
     document.getElementById('btnFormatJson').addEventListener('click', () => {
         const area = document.getElementById('manualRow');
         const out = document.getElementById('scoreOut');
@@ -1041,6 +912,7 @@ async function main() {
     appendLog('Ready. Upload your CSV and click "Load Data".');
 }
 
+// Prep config I/O
 function buildPreprocessingConfig() {
     return {
         numeric: STATE.maps?.numeric || NUMERIC_FEATURES,
@@ -1069,6 +941,7 @@ function applyPreprocessingConfig(cfg) {
     updateThresholdNotes();
 }
 
+// Bootstrap
 window.addEventListener('DOMContentLoaded', () => {
     appendLog('App loaded. Ready. Upload your CSV and click "Load Data".');
     main().catch(e => appendLog('Error during startup: ' + e.message));
