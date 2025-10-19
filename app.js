@@ -292,60 +292,46 @@ function computeSampleWeights(yTrain) {
 }
 
 async function fitModel(model, XTrain, yTrain, XVal, yVal, sampleWeights, epochs, batchSize, tag = 'Model') {
-// Make sure the visor is visible
-tfvis.visor().open();
+    const nTrain = yTrain.length;
+    const nVal = yVal.length;
+    const d = XTrain.length / nTrain;
+    const xTrainT = tf.tensor2d(XTrain, [nTrain, d]);
+    const yTrainT = tf.tensor2d(yTrain, [nTrain, 1]);
+    const xValT = tf.tensor2d(XVal, [nVal, d]);
+    const yValT = tf.tensor2d(yVal, [nVal, 1]);
 
-const nTrain = yTrain.length;
-const nVal = yVal.length;
-const d = XTrain.length / nTrain;
-const xTrainT = tf.tensor2d(XTrain, [nTrain, d]);
-const yTrainT = tf.tensor2d(yTrain, [nTrain, 1]);
-const xValT = tf.tensor2d(XVal, [nVal, d]);
-const yValT = tf.tensor2d(yVal, [nVal, 1]);
-
-const historyContainer = { name: ${tag} Training, tab: 'Training' };
-
-// Helper to log per-epoch progress
-const epochLogger = {
-onEpochEnd: async (epoch, logs) => {
-const acc = logs.binaryAccuracy ?? logs.acc ?? NaN;
-appendLog(${tag} epoch ${epoch + 1}/${epochs} — loss=${logs.loss?.toFixed(4)} val_loss=${logs.val_loss?.toFixed(4)} acc=${isFinite(acc) ? acc.toFixed(4) : '-'});
-await tf.nextFrame(); // let UI update
-}
-};
-
-let hist;
-try {
-hist = await model.fit(xTrainT, yTrainT, {
-epochs,
-batchSize,
-validationData: [xValT, yValT],
-callbacks: [
-tfvis.show.fitCallbacks(historyContainer, ['loss', 'val_loss', 'binaryAccuracy', 'val_binaryAccuracy'], { callbacks: ['onEpochEnd'] }),
-epochLogger,
-tf.callbacks.earlyStopping({ monitor: 'val_loss', patience: 8, minDelta: 1e-4 })
-],
-sampleWeight: tf.tensor1d(sampleWeights)
-});
-} catch (err) {
-appendLog('Warning: sampleWeight not supported. Training without weights. ' + err.message);
-hist = await model.fit(xTrainT, yTrainT, {
-epochs,
-batchSize,
-validationData: [xValT, yValT],
-callbacks: [
-tfvis.show.fitCallbacks(historyContainer, ['loss', 'val_loss', 'binaryAccuracy', 'val_binaryAccuracy'], { callbacks: ['onEpochEnd'] }),
-epochLogger,
-tf.callbacks.earlyStopping({ monitor: 'val_loss', patience: 8, minDelta: 1e-4 })
-]
-});
-} finally {
-xTrainT.dispose();
-yTrainT.dispose();
-xValT.dispose();
-yValT.dispose();
-}
-return hist;
+    const historyContainer = { name: `${tag} Training`, tab: 'Training' };
+    let hist;
+    
+    try {
+        hist = await model.fit(xTrainT, yTrainT, {
+            epochs,
+            batchSize,
+            validationData: [xValT, yValT],
+            callbacks: [
+                tfvis.show.fitCallbacks(historyContainer, ['loss', 'val_loss', 'binaryAccuracy', 'val_binaryAccuracy'], { callbacks: ['onEpochEnd'] }),
+                tf.callbacks.earlyStopping({ monitor: 'val_loss', patience: 8, minDelta: 1e-4 })
+            ],
+            sampleWeight: tf.tensor1d(sampleWeights)
+        });
+    } catch (err) {
+        appendLog('Warning: sampleWeight not supported in this environment. Training without weights. ' + err.message);
+        hist = await model.fit(xTrainT, yTrainT, {
+            epochs,
+            batchSize,
+            validationData: [xValT, yValT],
+            callbacks: [
+                tfvis.show.fitCallbacks(historyContainer, ['loss', 'val_loss', 'binaryAccuracy', 'val_binaryAccuracy'], { callbacks: ['onEpochEnd'] }),
+                tf.callbacks.earlyStopping({ monitor: 'val_loss', patience: 8, minDelta: 1e-4 })
+            ]
+        });
+    } finally {
+        xTrainT.dispose(); 
+        yTrainT.dispose(); 
+        xValT.dispose(); 
+        yValT.dispose();
+    }
+    return hist;
 }
 
 function predictProba(model, X) {
