@@ -384,6 +384,62 @@ function predictProba(model, X) {
     });
 }
 
+// Segment metrics
+function segmentMetrics(rows, probs, labels) {
+    const segments = {
+        Contract: [...new Set(rows.map(r => r.Contract ?? 'Unknown'))],
+        InternetService: [...new Set(rows.map(r => r.InternetService ?? 'Unknown'))],
+        SeniorCitizen: [...new Set(rows.map(r => String(r.SeniorCitizen ?? '0')))]
+    };
+
+    const results = [];
+
+    function segmentAUC(subProbs, subLabels) {
+        const roc = rocCurve(subProbs, subLabels);
+        const pairs = roc.fpr.map((x, i) => [x, roc.tpr[i]]).sort((a, b) => a[0] - b[0]);
+        return aucFromCurve(pairs.map(p => p[0]), pairs.map(p => p[1]));
+    }
+
+    for (const [key, values] of Object.entries(segments)) {
+        for (const v of values) {
+            const idx = rows
+                .map((r, i) => (String(r[key] ?? 'Unknown') === String(v) ? i : -1))
+                .filter(i => i >= 0);
+
+            if (idx.length < 10) continue; // skip tiny segments
+
+            const subProbs = idx.map(i => probs[i]);
+            const subLabels = idx.map(i => labels[i]);
+            const auc = segmentAUC(subProbs, subLabels);
+            const ece = calibrationBins(subProbs, subLabels, 10).ece;
+
+            results.push({ segment: `${key}=${v}`, size: idx.length, auc, ece });
+        }
+    }
+
+    return results.sort((a, b) => a.segment.localeCompare(b.segment));
+}
+
+// expose just in case some bundlers/scope shims are used
+window.segmentMetrics = segmentMetrics;
+
+// Optional safeguard in Evaluate handler
+// Wrap the call so the app doesn't break if it's missing again:
+
+if (typeof segmentMetrics === 'function') {
+    const seg = segmentMetrics(
+        STATE.split.testIdxs.map(i => STATE.cleanedRows[i]),
+        probsNN,
+        Array.from(labels)
+    );
+    const segTable = seg.slice(0, 50)
+        .map(s => `${s.segment} | n=${s.size} | AUC=${s.auc.toFixed(3)} | ECE=${s.ece.toFixed(3)}`)
+        .join('\n');
+    appendLog('Segment metrics (top):\n' + segTable);
+} else {
+    appendLog('segmentMetrics missing; skipping segment analysis.');
+}
+
 // Metrics helpers
 function rocCurve(probs, labels) {
     const pairs = [];
