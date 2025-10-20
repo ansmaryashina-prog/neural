@@ -129,7 +129,7 @@ function imputeAndClean(rows) {
     return cleaned;
 }
 
-// Split
+// Stratified split
 function stratifiedSplit(rows, seed, fractions = { train: 0.6, val: 0.2, test: 0.2 }) {
     const idxPos = [], idxNeg = [];
     rows.forEach((r, i) => (r._y === 1 ? idxPos : idxNeg).push(i));
@@ -165,7 +165,11 @@ function stratifiedSplit(rows, seed, fractions = { train: 0.6, val: 0.2, test: 0
 
     const split = {
         trainIdxs, valIdxs, testIdxs,
-        stats: { train: stats(trainIdxs), val: stats(valIdxs), test: stats(testIdxs) }
+        stats: {
+            train: stats(trainIdxs),
+            val: stats(valIdxs),
+            test: stats(testIdxs)
+        }
     };
 
     appendLog(`Split sizes: train=${split.stats.train.size} (churn=${(100 * split.stats.train.churnRate).toFixed(1)}%), val=${split.stats.val.size} (${(100 * split.stats.val.churnRate).toFixed(1)}%), test=${split.stats.test.size} (${(100 * split.stats.test.churnRate).toFixed(1)}%)`);
@@ -205,7 +209,7 @@ function buildPreprocessingMaps(trainRows) {
     return maps;
 }
 
-// Transform
+// Transform rows
 function transformRows(rows, maps) {
     const n = rows.length;
     const d = maps.featureOrder.length;
@@ -311,7 +315,7 @@ function computeSampleWeights(yTrain) {
     return w;
 }
 
-// Custom EarlyStopping (avoids tf.callbacks.earlyStopping bug)
+// Custom EarlyStopping (avoids tf.callbacks.earlyStopping issue)
 function makeEarlyStopping({ model, monitor = 'val_loss', patience = 8, minDelta = 1e-4 } = {}) {
     let best = Infinity;
     let wait = 0;
@@ -360,7 +364,6 @@ async function fitModel(model, XTrain, yTrain, XVal, yVal, sampleWeights, epochs
             batchSize,
             validationData: [xValT, yValT],
             callbacks: [visCb, logCb, esCb]
-            // no sampleWeight (browser TF.js limitation)
         });
     } finally {
         xTrainT.dispose();
@@ -384,63 +387,7 @@ function predictProba(model, X) {
     });
 }
 
-// Segment metrics
-function segmentMetrics(rows, probs, labels) {
-    const segments = {
-        Contract: [...new Set(rows.map(r => r.Contract ?? 'Unknown'))],
-        InternetService: [...new Set(rows.map(r => r.InternetService ?? 'Unknown'))],
-        SeniorCitizen: [...new Set(rows.map(r => String(r.SeniorCitizen ?? '0')))]
-    };
-
-    const results = [];
-
-    function segmentAUC(subProbs, subLabels) {
-        const roc = rocCurve(subProbs, subLabels);
-        const pairs = roc.fpr.map((x, i) => [x, roc.tpr[i]]).sort((a, b) => a[0] - b[0]);
-        return aucFromCurve(pairs.map(p => p[0]), pairs.map(p => p[1]));
-    }
-
-    for (const [key, values] of Object.entries(segments)) {
-        for (const v of values) {
-            const idx = rows
-                .map((r, i) => (String(r[key] ?? 'Unknown') === String(v) ? i : -1))
-                .filter(i => i >= 0);
-
-            if (idx.length < 10) continue; // skip tiny segments
-
-            const subProbs = idx.map(i => probs[i]);
-            const subLabels = idx.map(i => labels[i]);
-            const auc = segmentAUC(subProbs, subLabels);
-            const ece = calibrationBins(subProbs, subLabels, 10).ece;
-
-            results.push({ segment: `${key}=${v}`, size: idx.length, auc, ece });
-        }
-    }
-
-    return results.sort((a, b) => a.segment.localeCompare(b.segment));
-}
-
-// expose just in case some bundlers/scope shims are used
-window.segmentMetrics = segmentMetrics;
-
-// Optional safeguard in Evaluate handler
-// Wrap the call so the app doesn't break if it's missing again:
-
-if (typeof segmentMetrics === 'function') {
-    const seg = segmentMetrics(
-        STATE.split.testIdxs.map(i => STATE.cleanedRows[i]),
-        probsNN,
-        Array.from(labels)
-    );
-    const segTable = seg.slice(0, 50)
-        .map(s => `${s.segment} | n=${s.size} | AUC=${s.auc.toFixed(3)} | ECE=${s.ece.toFixed(3)}`)
-        .join('\n');
-    appendLog('Segment metrics (top):\n' + segTable);
-} else {
-    appendLog('segmentMetrics missing; skipping segment analysis.');
-}
-
-// Metrics helpers
+// Metrics
 function rocCurve(probs, labels) {
     const pairs = [];
     for (let i = 0; i < probs.length; i++) pairs.push([probs[i], labels[i]]);
@@ -449,13 +396,13 @@ function rocCurve(probs, labels) {
     for (const p of pairs) (p[1] === 1 ? P++ : N++);
     let tp = 0, fp = 0;
     const tpr = [0], fpr = [0];
-    let last = Infinity;
+    let lastProb = Infinity;
     for (let i = 0; i < pairs.length; i++) {
-        const [pr, y] = pairs[i];
-        if (pr !== last) {
+        const [prob, y] = pairs[i];
+        if (prob !== lastProb) {
             tpr.push(tp / (P || 1));
             fpr.push(fp / (N || 1));
-            last = pr;
+            lastProb = prob;
         }
         if (y === 1) tp++;
         else fp++;
@@ -471,15 +418,15 @@ function prCurve(probs, labels) {
     pairs.sort((a, b) => b[0] - a[0]);
     let tp = 0, fp = 0, P = labels.reduce((a, b) => a + b, 0);
     const precision = [], recall = [];
-    let last = Infinity;
+    let lastProb = Infinity;
     for (let i = 0; i < pairs.length; i++) {
-        const [pr, y] = pairs[i];
-        if (pr !== last) {
+        const [prob, y] = pairs[i];
+        if (prob !== lastProb) {
             const prec = tp + fp === 0 ? 1 : tp / (tp + fp);
             const rec = P === 0 ? 0 : tp / P;
             precision.push(prec);
             recall.push(rec);
-            last = pr;
+            lastProb = prob;
         }
         if (y === 1) tp++;
         else fp++;
@@ -553,9 +500,11 @@ function thresholdSearchYouden(probs, labels) {
 
 function decileLift(probs, labels) {
     const n = probs.length;
-    const idx = Array.from({ length: n }, (_, i) => i).sort((a, b) => probs[b] - probs[a]);
+    const idx = Array.from({ length: n }, (_, i) => i);
+    idx.sort((a, b) => probs[b] - probs[a]);
     const decileSize = Math.max(1, Math.floor(n / 10));
-    const rates = [], cumCapture = [];
+    const rates = [];
+    const cumCapture = [];
     const totalPos = labels.reduce((a, b) => a + b, 0);
     let cumPos = 0;
     for (let d = 0; d < 10; d++) {
@@ -625,7 +574,7 @@ async function runEDA(rows) {
     appendLog(`EDA complete. Churn rate overall: ${(100 * churnYes / rows.length).toFixed(1)}%.`);
 }
 
-// Plots used in evaluation
+// Rendering
 async function renderCurves(name, probs, labels, tab = 'Evaluation') {
     const roc = rocCurve(probs, labels);
     const rocPairs = roc.fpr.map((x, i) => ({ x, y: roc.tpr[i] })).sort((a, b) => a.x - b.x);
@@ -681,7 +630,7 @@ function renderMetricsTable(containerId, metrics) {
     `;
 }
 
-// Explainability helpers
+// Explainability
 async function dependencePlots(testRows, probs) {
     const tab = 'Explainability';
     const binsTenure = binDependence(testRows, probs, 'tenure', 10);
@@ -724,22 +673,44 @@ function categoryDependence(rows, probs, col) {
     return Object.keys(agg).map(k => ({ index: k, value: agg[k].sum / (agg[k].cnt || 1) }));
 }
 
-// UI
-function getHyperparams() {
-    const layerSizes = (document.getElementById('hpLayers').value.trim() || '')
-        .split(',')
-        .map(s => parseInt(s.trim(), 10))
-        .filter(n => !isNaN(n) && n > 0);
-    const dropout = parseFloat(document.getElementById('hpDropout').value);
-    const l2 = parseFloat(document.getElementById('hpL2').value);
-    const lr = parseFloat(document.getElementById('hpLR').value);
-    const batch = parseInt(document.getElementById('hpBatch').value, 10);
-    const epochs = parseInt(document.getElementById('hpEpochs').value, 10);
-    const seed = parseInt(document.getElementById('hpSeed').value, 10);
-    STATE.seed = seed;
-    return { layerSizes, dropout, l2, lr, batch, epochs, seed };
+// Segment metrics — used in Evaluate handler
+function segmentMetrics(rows, probs, labels) {
+    const segments = {
+        Contract: [...new Set(rows.map(r => r.Contract ?? 'Unknown'))],
+        InternetService: [...new Set(rows.map(r => r.InternetService ?? 'Unknown'))],
+        SeniorCitizen: [...new Set(rows.map(r => String(r.SeniorCitizen ?? '0')))]
+    };
+
+    const results = [];
+
+    function segmentAUC(subProbs, subLabels) {
+        const roc = rocCurve(subProbs, subLabels);
+        const pairs = roc.fpr.map((x, i) => [x, roc.tpr[i]]).sort((a, b) => a[0] - b[0]);
+        return aucFromCurve(pairs.map(p => p[0]), pairs.map(p => p[1]));
+    }
+
+    for (const [key, values] of Object.entries(segments)) {
+        for (const v of values) {
+            const idx = rows
+                .map((r, i) => (String(r[key] ?? 'Unknown') === String(v) ? i : -1))
+                .filter(i => i >= 0);
+
+            if (idx.length < 10) continue;
+
+            const subProbs = idx.map(i => probs[i]);
+            const subLabels = idx.map(i => labels[i]);
+            results.push({
+                segment: `${key}=${v}`,
+                size: idx.length,
+                auc: segmentAUC(subProbs, subLabels),
+                ece: calibrationBins(subProbs, subLabels, 10).ece
+            });
+        }
+    }
+    return results.sort((a, b) => a.segment.localeCompare(b.segment));
 }
 
+// Business helpers
 function getBusinessParams() {
     const offerCost = parseFloat(document.getElementById('bizOfferCost').value);
     const saveRate = parseFloat(document.getElementById('bizSaveRate').value);
@@ -751,11 +722,66 @@ function getBusinessParams() {
     return STATE.business;
 }
 
-function updateThresholdNotes() {
-    const noteEl = document.getElementById('thresholdNotes');
-    const f1 = STATE.thresholds.f1 != null ? STATE.thresholds.f1 : '-';
-    const youden = STATE.thresholds.youden != null ? STATE.thresholds.youden : '-';
-    noteEl.textContent = `F1-optimal: ${f1}, Youden-optimal: ${youden}`;
+function getBusinessParamsSafe() {
+    const raw = getBusinessParams();
+    return {
+        offerCost: Number(raw.offerCost) || 0,
+        saveRate: Math.min(1, Math.max(0, Number(raw.saveRate) || 0)),
+        retentionMonths: Math.max(0, Number(raw.retentionMonths) || 0),
+        margin: Math.min(1, Math.max(0, Number(raw.margin) || 0)),
+        kMin: Math.max(0, Number(raw.kMin) || 0),
+        kMax: Math.min(100, Math.max(0, Number(raw.kMax) || 0))
+    };
+}
+
+function expectedValuePerCustomer(p, monthlyCharge, params) {
+    const { offerCost, saveRate, retentionMonths, margin } = params;
+    const m = isFinite(monthlyCharge) ? Number(monthlyCharge) : 0;
+    const sr = Math.min(1, Math.max(0, saveRate || 0));
+    const rm = Math.max(0, retentionMonths || 0);
+    const mg = Math.min(1, Math.max(0, margin || 0));
+    return (p * sr * mg * m * rm) - (offerCost || 0);
+}
+
+function businessProfitThresholdSweep(probs, labels, monthly, params) {
+    const results = [];
+    for (let t = 0.1; t <= 0.9; t += 0.01) {
+        let targeted = 0, profit = 0, tp = 0;
+        const pos = labels.reduce((a, b) => a + b, 0);
+        for (let i = 0; i < probs.length; i++) {
+            if (probs[i] >= t) {
+                targeted++;
+                profit += expectedValuePerCustomer(probs[i], monthly[i], params);
+                if (labels[i] === 1) tp++;
+            }
+        }
+        const precision = targeted === 0 ? 0 : tp / targeted;
+        const recall = pos === 0 ? 0 : tp / pos;
+        results.push({ t: +t.toFixed(2), targeted, profit, precision, recall });
+    }
+    const best = results.reduce((a, b) => (b.profit > a.profit ? b : a), { profit: -Infinity });
+    return { results, best };
+}
+
+function businessProfitTopK(probs, labels, monthly, params, kMin = 5, kMax = 40) {
+    const n = probs.length;
+    const idx = Array.from({ length: n }, (_, i) => i).sort((a, b) => probs[b] - probs[a]);
+    const results = [];
+    for (let k = kMin; k <= kMax; k += 1) {
+        const m = Math.floor(n * (k / 100));
+        let profit = 0, tp = 0, targeted = m;
+        const pos = labels.reduce((a, b) => a + b, 0);
+        for (let i = 0; i < m; i++) {
+            const j = idx[i];
+            profit += expectedValuePerCustomer(probs[j], monthly[j], params);
+            if (labels[j] === 1) tp++;
+        }
+        const precision = targeted === 0 ? 0 : tp / targeted;
+        const recall = pos === 0 ? 0 : tp / pos;
+        results.push({ k, targeted, profit, precision, recall });
+    }
+    const best = results.reduce((a, b) => (b.profit > a.profit ? b : a), { profit: -Infinity });
+    return { results, best };
 }
 
 // Main
@@ -829,63 +855,85 @@ async function main() {
     });
 
     document.getElementById('btnEvaluate').addEventListener('click', async () => {
-        if (!STATE.models.mlp || !STATE.predictions.mlp.test) { appendLog('Train Neural Net (and Baseline) first.'); return; }
+        if (!STATE.transformed || !STATE.transformed.test) { appendLog('Please Preprocess & Split first.'); return; }
         tfvis.visor().open();
         const probsBase = STATE.predictions.baseline.test || new Float32Array(STATE.transformed.test.y.length).fill(0.0);
         const probsNN = STATE.predictions.mlp.test;
         const labels = STATE.transformed.test.y;
 
         const baseCurves = await renderCurves('Baseline', probsBase, labels, 'Evaluation');
-        const nnCurves = await renderCurves('Neural Net', probsNN, labels, 'Evaluation');
+        if (probsNN) {
+            const nnCurves = await renderCurves('Neural Net', probsNN, labels, 'Evaluation');
+            await renderCalibration('Neural Net', probsNN, labels, 'Evaluation');
+            await renderDecileLift('Neural Net', probsNN, labels, 'Evaluation');
 
-        await renderCalibration('Neural Net', probsNN, labels, 'Evaluation');
-        await renderDecileLift('Neural Net', probsNN, labels, 'Evaluation');
+            const t = Math.min(1, Math.max(0, parseFloat(document.getElementById('thresholdInput').value) || 0.5));
+            STATE.thresholds.manual = t;
+            const nnThr = basicMetricsAtThreshold(probsNN, labels, t);
+            const brier = brierScore(probsNN, labels);
+            const ece = calibrationBins(probsNN, labels, 10).ece;
 
-        const t = Math.min(1, Math.max(0, parseFloat(document.getElementById('thresholdInput').value) || 0.5));
-        STATE.thresholds.manual = t;
-        const nnThr = basicMetricsAtThreshold(probsNN, labels, t);
-        const brier = brierScore(probsNN, labels);
-        const ece = calibrationBins(probsNN, labels, 10).ece;
+            renderMetricsTable('metrics', {
+                baseline: { rocAUC: baseCurves.rocAUC, prAUC: baseCurves.prAUC },
+                nn: { rocAUC: nnCurves.rocAUC, prAUC: nnCurves.prAUC },
+                threshold: t,
+                nnAtThr: nnThr,
+                brier, ece
+            });
 
-        renderMetricsTable('metrics', {
-            baseline: { rocAUC: baseCurves.rocAUC, prAUC: baseCurves.prAUC },
-            nn: { rocAUC: nnCurves.rocAUC, prAUC: nnCurves.prAUC },
-            threshold: t,
-            nnAtThr: nnThr,
-            brier, ece
-        });
-
-        const seg = segmentMetrics(STATE.split.testIdxs.map(i => STATE.cleanedRows[i]), probsNN, Array.from(labels));
-        const segTable = seg.slice(0, 50).map(s => `${s.segment} | n=${s.size} | AUC=${s.auc.toFixed(3)} | ECE=${s.ece.toFixed(3)}`).join('\n');
-        appendLog('Segment metrics (top):\n' + segTable);
-
-        appendLog('Computing permutation importance on validation subsample (may take ~10-20s)...');
-        const valRows = STATE.split.valIdxs.map(i => STATE.cleanedRows[i]);
-        const pi = await permutationImportance(valRows, STATE.maps, STATE.models.mlp, 2000);
-        const top15 = pi.importance.slice(0, 15).map(x => ({ index: x.feature, value: x.delta }));
-        await tfvis.render.barchart({ name: `Permutation Importance (PR AUC drop)`, tab: 'Explainability' }, top15, { xLabel: 'Feature', yLabel: 'ΔPR AUC', height: 300 });
-        appendLog('Permutation importance baseline PR AUC on val: ' + pi.basePRAUC.toFixed(4));
-
-        const testRows = STATE.split.testIdxs.map(i => STATE.cleanedRows[i]);
-        await dependencePlots(testRows, probsNN);
+            const seg = segmentMetrics(STATE.split.testIdxs.map(i => STATE.cleanedRows[i]), probsNN, Array.from(labels));
+            const segTable = seg.slice(0, 50).map(s => `${s.segment} | n=${s.size} | AUC=${s.auc.toFixed(3)} | ECE=${s.ece.toFixed(3)}`).join('\n');
+            appendLog('Segment metrics (top):\n' + segTable);
+        } else {
+            appendLog('NN predictions not found. Metrics table will reflect Baseline curves only.');
+            renderMetricsTable('metrics', {
+                baseline: { rocAUC: baseCurves.rocAUC, prAUC: baseCurves.prAUC },
+                nn: { rocAUC: NaN, prAUC: NaN },
+                threshold: STATE.thresholds.manual || 0.5,
+                nnAtThr: { acc: NaN, prec: NaN, rec: NaN, f1: NaN, TP: 0, FP: 0, TN: 0, FN: 0 },
+                brier: NaN, ece: NaN
+            });
+        }
     });
 
     document.getElementById('btnBusiness').addEventListener('click', async () => {
-        if (!STATE.models.mlp || !STATE.predictions.mlp.test) { appendLog('Train Neural Net first.'); return; }
         tfvis.visor().open();
-        const params = getBusinessParams();
-        const probs = STATE.predictions.mlp.test;
+
+        if (!STATE.transformed || !STATE.transformed.test) {
+            appendLog('Please Preprocess & Split first.');
+            return;
+        }
+
+        let probs = null;
+        if (STATE.predictions?.mlp?.test) {
+            probs = STATE.predictions.mlp.test;
+            appendLog('Business Simulation using NN predictions.');
+        } else if (STATE.predictions?.baseline?.test) {
+            probs = STATE.predictions.baseline.test;
+            appendLog('NN predictions not found. Falling back to Baseline predictions for Business Simulation.');
+        } else {
+            appendLog('No predictions available. Train Baseline or NN first.');
+            return;
+        }
+
         const labels = STATE.transformed.test.y;
         const monthly = STATE.transformed.test.meta.monthly;
+        if (!probs?.length || probs.length !== labels.length || labels.length !== monthly.length) {
+            appendLog(`Inconsistent data lengths: probs=${probs?.length}, labels=${labels?.length}, monthly=${monthly?.length}.`);
+            return;
+        }
 
+        const params = getBusinessParamsSafe();
         const thrSweep = businessProfitThresholdSweep(probs, labels, monthly, params);
         const kSweep = businessProfitTopK(probs, labels, monthly, params, params.kMin, params.kMax);
 
         const line1 = thrSweep.results.map(r => ({ x: r.t, y: r.profit }));
-        await tfvis.render.linechart({ name: 'Business: Profit vs Threshold', tab: 'Business' }, { values: line1, series: ['profit'] }, { xLabel: 'Threshold', yLabel: 'Profit (test subset)', height: 300 });
+        await tfvis.render.linechart({ name: 'Business: Profit vs Threshold', tab: 'Business' },
+            { values: line1, series: ['profit'] }, { xLabel: 'Threshold', yLabel: 'Profit (test subset)', height: 300 });
 
         const line2 = kSweep.results.map(r => ({ x: r.k, y: r.profit }));
-        await tfvis.render.linechart({ name: 'Business: Profit vs Top-K%', tab: 'Business' }, { values: line2, series: ['profit'] }, { xLabel: 'Top-K %', yLabel: 'Profit (test subset)', height: 300 });
+        await tfvis.render.linechart({ name: 'Business: Profit vs Top-K%', tab: 'Business' },
+            { values: line2, series: ['profit'] }, { xLabel: 'Top-K %', yLabel: 'Profit (test subset)', height: 300 });
 
         const bestT = thrSweep.best;
         const bestK = kSweep.best;
@@ -894,13 +942,9 @@ async function main() {
 
         const testSize = labels.length;
         const totalSize = STATE.cleanedRows.length;
-        const annualized = (bestT.profit / testSize) * totalSize * (12 / Math.max(1, params.retentionMonths));
-        appendLog(`Estimated annualized savings (threshold policy): $${annualized.toFixed(2)} (assumes scaling from test to full data and 12/${params.retentionMonths} months).`);
-
-        const topT = thrSweep.results.slice().sort((a, b) => b.profit - a.profit).slice(0, 5);
-        const topK = kSweep.results.slice().sort((a, b) => b.profit - a.profit).slice(0, 5);
-        appendLog('Top 5 thresholds by profit:\n' + topT.map(r => `t=${r.t} profit=${r.profit.toFixed(2)} targeted=${r.targeted}`).join('\n'));
-        appendLog('Top 5 K% by profit:\n' + topK.map(r => `k=${r.k}% profit=${r.profit.toFixed(2)} targeted=${r.targeted}`).join('\n'));
+        const months = Math.max(1, params.retentionMonths);
+        const annualized = (bestT.profit / testSize) * totalSize * (12 / months);
+        appendLog(`Estimated annualized savings: $${annualized.toFixed(2)}.`);
     });
 
     document.getElementById('btnSetF1').addEventListener('click', () => {
@@ -1023,6 +1067,29 @@ function applyPreprocessingConfig(cfg) {
     STATE.seed = cfg.seed || STATE.seed;
     document.getElementById('thresholdInput').value = STATE.thresholds.manual || 0.5;
     updateThresholdNotes();
+}
+
+// UI helpers
+function getHyperparams() {
+    const layerSizes = (document.getElementById('hpLayers').value.trim() || '')
+        .split(',')
+        .map(s => parseInt(s.trim(), 10))
+        .filter(n => !isNaN(n) && n > 0);
+    const dropout = parseFloat(document.getElementById('hpDropout').value);
+    const l2 = parseFloat(document.getElementById('hpL2').value);
+    const lr = parseFloat(document.getElementById('hpLR').value);
+    const batch = parseInt(document.getElementById('hpBatch').value, 10);
+    const epochs = parseInt(document.getElementById('hpEpochs').value, 10);
+    const seed = parseInt(document.getElementById('hpSeed').value, 10);
+    STATE.seed = seed;
+    return { layerSizes, dropout, l2, lr, batch, epochs, seed };
+}
+
+function updateThresholdNotes() {
+    const noteEl = document.getElementById('thresholdNotes');
+    const f1 = STATE.thresholds.f1 != null ? STATE.thresholds.f1 : '-';
+    const youden = STATE.thresholds.youden != null ? STATE.thresholds.youden : '-';
+    noteEl.textContent = `F1-optimal: ${f1}, Youden-optimal: ${youden}`;
 }
 
 // Bootstrap
